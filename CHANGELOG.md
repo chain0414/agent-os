@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### iOS
+
+- 自动化运行指令和静默回执默认隐藏，有价值的结果与待处理事项继续显示，并可从会话菜单查看原始记录。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)）
+- 长用户输入默认显示前 8 行，可逐级展开至 24 行或全文并收起，消息发送回显和布局切换后保留展开状态。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)）
+- 会话与审批输入框提供「收起键盘」按钮，收起后保留未发送的文字和附件。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)）
+- 减少长会话和超长回复横竖屏切换时的排版开销，切换布局时保留阅读锚点，阅读历史时不再将已加载记录裁回最近一页。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)、[12b38b63](https://github.com/anywhere-labs/Agents-Anywhere/commit/12b38b63)）
+
 ### 会话创建与消息交付
 
 - Connector 上报的时间线条目序号超出范围时只拒绝这条上报，同批其他消息照常保存，不再让整个会话之后的消息都存不进数据库；升级前已经积压的条目会按原顺序排到时间线末尾保存，持续写入失败的会话也不再每秒重试刷屏日志。（[#464](https://github.com/anywhere-labs/Agents-Anywhere/pull/464)）
