@@ -178,9 +178,28 @@ final class SessionTimelinePresentation {
                     instructions[turn, default: []].insert(id)
                 }
             }
-            for row in updated where row.value.role == .assistant {
-                let ids = row.value.turnId.flatMap { instructions[$0] }
-                row.associateAutomation(ids?.count == 1 ? ids?.first : nil)
+            // Older snapshots have no turn IDs. In that case only the nearest
+            // user boundary may authorize an automation reply; every other user
+            // message clears the context, including malformed/unfinished controls.
+            var legacyInstructionID: String?
+            for row in updated {
+                if row.value.role == .user {
+                    legacyInstructionID = nil
+                    if row.value.turnId == nil, case let .instruction(id) = row.automation {
+                        legacyInstructionID = id
+                    }
+                } else if row.value.turnId != nil {
+                    // An explicitly identified turn also closes legacy context,
+                    // even when its first visible event is a tool or assistant.
+                    legacyInstructionID = nil
+                }
+                guard row.value.role == .assistant else { continue }
+                if let turn = row.value.turnId {
+                    let ids = instructions[turn]
+                    row.associateAutomation(ids?.count == 1 ? ids?.first : nil)
+                } else {
+                    row.associateAutomation(row.automation?.automationID == legacyInstructionID ? legacyInstructionID : nil)
+                }
             }
             if started { nextBatchAt = now + ReplyPresentation.batchInterval }
             if orderChanged {

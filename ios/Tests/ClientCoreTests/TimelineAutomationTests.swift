@@ -94,6 +94,73 @@ import Testing
         #expect(differentTurn.rows[1].text == notify)
     }
 
+    @Test func legacyAutomationWithoutTurnIDsMatchesOnlyWithinItsUserBoundary() throws {
+        let input = try item("input", role: "user", text: instruction)
+        let reply = try item("reply", text: silent)
+        let notification = try item("notification", text: notify)
+        let model = presentation([input, reply, notification])
+        #expect(TimelineGrouping.groups(model.rows, interactionTargets: []).map(\.id) == ["notification"])
+        #expect(model.rows[2].text == "Completed **delivery**.")
+        #expect(model.rows[1].value.displayText == silent)
+        let protected = TimelineGrouping.groups(model.rows, interactionTargets: ["reply"])
+        #expect(protected.flatMap(\.rows).contains { $0.id == "reply" })
+        model.showsAutomationRecords = true
+        #expect(TimelineGrouping.groups(model.rows, interactionTargets: []).count == 3)
+        model.showsAutomationRecords = false
+        #expect(TimelineGrouping.groups(model.rows, interactionTargets: []).map(\.id) == ["notification"])
+        model.stage([reply, notification], animate: false); model.flush()
+        #expect(TimelineGrouping.groups(model.rows, interactionTargets: []).count == 2)
+        #expect(model.rows[1].text == notify)
+    }
+
+    @Test func legacyAutomationNeverCrossesOrdinaryUnknownOrInvalidUserBoundaries() throws {
+        let input = try item("input", role: "user", text: instruction)
+        let boundaries = try [
+            item("ordinary", role: "user", text: "Explain this XML"),
+            item("unknown", role: "user", text: instruction.replacingOccurrences(of: "</heartbeat>", with: "<unknown>x</unknown></heartbeat>")),
+            item("incomplete", role: "user", text: String(instruction.dropLast())),
+            item("failed", role: "user", text: instruction, status: "failed"),
+            item("running", role: "user", text: instruction, status: "running"),
+            item("attached", role: "user", text: instruction, attachments: true),
+            item("explicit", role: "user", text: instruction, turn: "explicit"),
+            item("different", role: "user", text: instruction.replacingOccurrences(of: "drawaa", with: "other")),
+        ]
+        for boundary in boundaries {
+            let model = presentation([input, boundary, try item("reply", text: silent)])
+            #expect(!model.rows[2].structure.isAutomationHidden)
+            #expect(model.rows[2].text == silent)
+        }
+        let orphan = presentation([try item("reply", text: silent)])
+        #expect(!orphan.rows[0].structure.isAutomationHidden)
+    }
+
+    @Test func explicitTurnIDsNeverFallBackToLegacyUserAssociation() throws {
+        for (inputTurn, replyTurn) in [(nil, "reply"), ("input", nil), ("input", "reply")] as [(String?, String?)] {
+            let model = presentation(try [item("input", role: "user", text: instruction, turn: inputTurn),
+                item("reply", text: silent, turn: replyTurn)])
+            #expect(!model.rows[1].structure.isAutomationHidden)
+            #expect(model.rows[1].text == silent)
+        }
+        let ambiguous = presentation(try [item("one", role: "user", text: instruction, turn: "same"),
+            item("two", role: "user", text: instruction.replacingOccurrences(of: "drawaa", with: "other"), turn: "same"),
+            item("reply", text: silent, turn: "same")])
+        #expect(!ambiguous.rows[2].structure.isAutomationHidden)
+    }
+
+    @Test func explicitNonUserTurnsClearLegacyAutomationContext() throws {
+        let input = try item("input", role: "user", text: instruction)
+        let assistant = try item("explicit-assistant", text: "Another turn", turn: "explicit")
+        var toolRaw = try itemObject(id: "explicit-tool")
+        toolRaw["type"] = "tool"; toolRaw["turnId"] = "explicit"
+        toolRaw["content"] = ["kind": "command", "command": "build"]
+        let tool: V2TimelineItem = try decode(toolRaw)
+        for boundary in [assistant, tool] {
+            let model = presentation([input, boundary, try item("reply", text: silent)])
+            #expect(!model.rows[2].structure.isAutomationHidden)
+            #expect(model.rows[2].text == silent)
+        }
+    }
+
     @Test func rawRecordToggleRestoresAndRehidesWithoutLosingRowsOrRawExport() throws {
         let input = try item("input", role: "user", text: instruction, turn: "auto")
         let reply = try item("reply", text: silent, turn: "auto")
