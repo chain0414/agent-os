@@ -148,6 +148,8 @@ class CodexNotificationProjector:
             await self.timeline_activity.publish_compaction_outcome(
                 session_id, thread_id, event
             )
+        if event.is_terminal_turn:
+            await self.timeline_activity.publish_turn_timing(session_id, thread_id, event)
         if event.is_turn_started:
             await self.turn_lifecycle.handle_turn_started(
                 session_id=session_id,

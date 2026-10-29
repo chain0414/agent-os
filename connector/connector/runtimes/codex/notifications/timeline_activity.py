@@ -30,6 +30,12 @@ class CodexTimelineActivityHandler:
         ):
             await self.host.timeline_item_upsert(item)
 
+    async def publish_turn_timing(
+        self, session_id: str, thread_id: str, event: CodexSdkEvent
+    ) -> None:
+        for item in self.timeline.finish_turn_timing(session_id, thread_id, event):
+            await self.host.timeline_item_upsert(item)
+
     async def publish_item_activity(
         self,
         session_id: str,
