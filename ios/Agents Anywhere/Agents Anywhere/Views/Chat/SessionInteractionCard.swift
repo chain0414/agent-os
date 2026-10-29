@@ -136,9 +136,10 @@ struct SessionInteractionCard: View {
                     Group {
                         if item.isSending(action) { ProgressView() }
                         else { Image(systemName: "arrow.up").font(.body.weight(.semibold)) }
-                    }.frame(width: 44, height: 44)
+                    }.frame(width: 30, height: 30)
                 }
                 .buttonStyle(.glassProminent).buttonBorderShape(.circle)
+                .frame(width: 44, height: 44)
                 .accessibilityLabel(NoticeActionPresentation.title(action, notice: item.notice))
                 .accessibilityIdentifier("chat.interactions.submit")
                 .disabled(chat.isWorking || !item.canRespond(fresh: chat.session.runtime.isFresh, at: now)
@@ -249,7 +250,7 @@ struct SessionInteractionMetrics: DynamicProperty {
     var titleHeight: CGFloat { max(44, lineHeight * 2) }
     var minimumHeight: CGFloat { titleHeight + actionHeight + 32 }
     var compactHeight: CGFloat { minimumHeight + lineHeight * 2 }
-    var inputHeight: CGFloat { titleHeight + lineHeight * 7 + 76 }
+    var inputHeight: CGFloat { titleHeight + lineHeight * 5 + 76 }
     var compactInputHeight: CGFloat { titleHeight + 76 }
 }
 
