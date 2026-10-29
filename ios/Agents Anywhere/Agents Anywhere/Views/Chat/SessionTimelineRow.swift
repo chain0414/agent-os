@@ -23,7 +23,9 @@ struct SessionTimelineRow: View, Equatable {
             switch row.value.content {
             case let .message(message):
                 let files = chat.session.attachmentPreviews.resolve(message.attachments, clientID: row.value.source["clientMessageId"]?.stringValue)
-                if row.value.role == .user {
+                if let instruction = row.automationInstruction {
+                    AutomationInstructionDisclosure(instruction: instruction, itemID: row.id, disclosures: disclosures)
+                } else if row.value.role == .user {
                     UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail,
                         expansion: chat.session.userMessageExpansion,
                         messageKey: UserMessageExpansionStore.key(itemID: row.id, clientMessageID: row.value.source["clientMessageId"]?.stringValue))
@@ -60,6 +62,46 @@ struct SessionTimelineRow: View, Equatable {
             .environment(\.chatLayoutTraceOwner, row.id)
             .id(row.layoutGeneration)
             .frame(minHeight: row.value.isStreamingText ? lineHeight : nil, alignment: .topLeading)
+    }
+}
+
+/// Keep a visible cause for scheduled work while the potentially long prompt is
+/// collapsed. Its own disclosure key survives message revisions and rotation.
+private struct AutomationInstructionDisclosure: View {
+    let instruction: TimelineAutomationInstruction
+    let itemID: String
+    let disclosures: TimelineDisclosureState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var key: String { "automation:\(itemID)" }
+    var body: some View {
+        let expanded = disclosures.isExpanded(key)
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { disclosures.toggle(key) }
+            } label: {
+                HStack(spacing: 10) {
+                    AppSymbol("clock", size: 16)
+                    Text(String(localized: "自动化任务")).font(.subheadline)
+                    Spacer(minLength: 12)
+                    if let timestamp = instruction.timestamp {
+                        Text(timestamp, format: .dateTime.hour().minute())
+                            .font(.caption).monospacedDigit()
+                    }
+                    AppSymbol("chevron.down", size: 11).rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .foregroundStyle(.secondary).padding(.horizontal, 16).frame(minHeight: 48)
+                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 16))
+                .contentShape(.rect(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(expanded ? String(localized: "已展开") : String(localized: "已折叠"))
+            .accessibilityIdentifier("chat.automation.disclosure")
+            if expanded {
+                ChatMarkdownView(text: instruction.text, isStreaming: false, resolvesFileReferences: true)
+                    .padding(.horizontal, 12)
+                    .accessibilityIdentifier("chat.automation.instructions")
+            }
+        }
     }
 }
 

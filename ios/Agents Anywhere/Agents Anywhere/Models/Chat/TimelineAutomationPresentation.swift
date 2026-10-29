@@ -3,12 +3,12 @@ import Foundation
 /// A presentation-only interpretation of complete, known automation envelopes.
 /// Raw timeline values remain available for exports and the conversation menu.
 nonisolated enum TimelineAutomationPresentation: Equatable {
-    case instruction(String, String)
+    case instruction(String, String, Date?)
     case silent(String, String)
     case notification(String, String)
 
     var automationID: String {
-        switch self { case let .instruction(id, _), let .silent(id, _), let .notification(id, _): id }
+        switch self { case let .instruction(id, _, _), let .silent(id, _), let .notification(id, _): id }
     }
 
     /// Automation decisions govern delivery notifications, not transcript visibility.
@@ -16,13 +16,22 @@ nonisolated enum TimelineAutomationPresentation: Equatable {
     /// the complete control envelope from the presentation.
     var bodyText: String {
         switch self {
-        case let .instruction(_, text), let .silent(_, text), let .notification(_, text): text
+        case let .instruction(_, text, _), let .silent(_, text), let .notification(_, text): text
         }
     }
 
     static func classify(_ item: V2TimelineItem) -> Self? {
         guard item.type == .message, item.status == .done,
               case let .message(content) = item.content, content.attachments.isEmpty else { return nil }
+        if item.role == .user, item.raw["content"]?["automation"]?["kind"] == .string("schedule") {
+            let marker = item.raw["content"]?["automation"]
+            var timestamp: Date?
+            if case let .number(milliseconds) = marker?["timestampMs"], milliseconds.isFinite, milliseconds >= 0 {
+                timestamp = Date(timeIntervalSince1970: milliseconds / 1000)
+            }
+            guard !item.displayText.isEmpty else { return nil }
+            return .instruction(item.id, item.displayText, timestamp)
+        }
         let text = item.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasPrefix("<heartbeat>"), text.hasSuffix("</heartbeat>") else { return nil }
         let body = text.dropFirst("<heartbeat>".count).dropLast("</heartbeat>".count)
@@ -32,7 +41,7 @@ nonisolated enum TimelineAutomationPresentation: Equatable {
         case .user:
             guard Set(fields.keys).isSubset(of: ["automation_id", "current_time_iso", "instructions"]),
                   let instructions = fields["instructions"], !instructions.isEmpty else { return nil }
-            return .instruction(id, instructions)
+            return .instruction(id, instructions, V2Timestamp.date(fields["current_time_iso"]))
         case .assistant:
             guard Set(fields.keys) == ["automation_id", "decision", "message"],
                   let message = fields["message"], !message.isEmpty else { return nil }
@@ -64,4 +73,9 @@ nonisolated enum TimelineAutomationPresentation: Equatable {
             rest = rest[close.upperBound...]
         }
     }
+}
+
+nonisolated struct TimelineAutomationInstruction: Equatable {
+    let text: String
+    let timestamp: Date?
 }

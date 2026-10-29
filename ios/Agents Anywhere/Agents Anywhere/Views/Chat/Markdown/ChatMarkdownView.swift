@@ -118,6 +118,7 @@ struct ChatMarkdownView: View {
         try Task.checkCancellation()
         var document = try AttributedStringMarkdownParser.parse(text, syntaxExtensions: [.math])
         try Task.checkCancellation()
+        document = InlineCodeWebLink.enrich(document)
         if request.resolvesFileReferences {
             for run in document.runs {
                 if run.link == nil, run.inlinePresentationIntent?.contains(.code) == true,

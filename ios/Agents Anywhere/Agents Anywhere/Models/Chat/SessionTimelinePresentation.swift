@@ -16,8 +16,13 @@ final class ChatTimelineRowModel: Identifiable {
     @ObservationIgnored private var entryCache: (cwd: String?, entry: TimelineEntryPresentation)?
     /// False while a streaming batch withholds the final glyph of the received text.
     @ObservationIgnored private var displaysFullText = false
-    @ObservationIgnored private var showsAutomationRecords = false
+    private var showsAutomationRecords = false
     @ObservationIgnored private(set) var automation: TimelineAutomationPresentation?
+    var automationInstruction: TimelineAutomationInstruction? {
+        guard !showsAutomationRecords, case let .instruction(_, text, timestamp) = automation else { return nil }
+        return TimelineAutomationInstruction(text: text, timestamp: timestamp)
+    }
+
     init(_ value: V2TimelineItem, animate: Bool = false) {
         id = value.id; self.value = value
         let automation = TimelineAutomationPresentation.classify(value)
