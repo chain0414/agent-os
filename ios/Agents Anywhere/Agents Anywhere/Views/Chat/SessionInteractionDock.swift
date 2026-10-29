@@ -6,6 +6,7 @@ struct SessionInteractionDock: View {
     let chat: SessionChatModel
     let onShowAll: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     var metrics = SessionInteractionMetrics()
 
     private var items: [SessionNoticeModel] {
@@ -25,14 +26,19 @@ struct SessionInteractionDock: View {
         .onChange(of: pages.map(\.id), initial: true) { _, next in pager.synchronize(next) }
     }
     private func pagesView(_ pages: [SessionNoticeModel]) -> some View {
-        TabView(selection: Binding<String>(get: {
-            if let selectedID = pager.selectedID, pages.contains(where: { $0.id == selectedID }) { return selectedID }
-            return pages[min(pager.selectedIndex, pages.count - 1)].id
-        }, set: { pager.select($0) })) {
+        let compactInput = verticalSizeClass == .compact
+        let height = pages.map { item in
+            item.form == nil ? metrics.compactHeight
+                : (compactInput ? metrics.compactInputHeight : metrics.inputHeight)
+        }.max() ?? metrics.compactHeight
+        let selectedID = pager.selectedID.flatMap { selected in pages.contains { $0.id == selected } ? selected : nil }
+            ?? pages[min(pager.selectedIndex, pages.count - 1)].id
+        return TabView(selection: Binding<String>(get: { selectedID }, set: { pager.select($0) })) {
             ForEach(Array(pages.enumerated()), id: \.element.id) { index, item in
                 SessionInteractionCard(item: item, chat: chat,
                     page: pages.count > 1 ? "\(index + 1)/\(pages.count)" : nil,
-                    height: metrics.compactHeight, onExpand: { onShowAll(item.id) },
+                    height: height, showsSurface: false,
+                    isActive: selectedID == item.id, usesCompactInput: compactInput, onExpand: { onShowAll(item.id) },
                     onPrevious: pages.count > 1 ? { step(-1) } : nil,
                     onNext: pages.count > 1 ? { step(1) } : nil,
                     canGoPrevious: index > 0, canGoNext: index + 1 < pages.count)
@@ -40,7 +46,9 @@ struct SessionInteractionDock: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: metrics.compactHeight).clipped()
+        .frame(height: height)
+        .clipShape(.rect(cornerRadius: 24))
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .accessibilityIdentifier("chat.interactions.pager")
         .padding(.horizontal, 24).padding(.vertical, 8)
     }
