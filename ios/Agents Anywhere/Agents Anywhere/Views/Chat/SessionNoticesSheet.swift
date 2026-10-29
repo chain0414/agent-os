@@ -22,13 +22,14 @@ struct SessionNoticesSheet: View {
                         }
                     }.padding(16)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onAppear { if let initialNoticeID { proxy.scrollTo(initialNoticeID, anchor: .top) } }
             }
             .navigationTitle(String(localized: "交互与通知"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseToolbar { dismiss() } }
         }
-        .appSheetPresentation(.compact)
+        .appSheetPresentation(initialNoticeID == nil ? .compact : .expanded)
         .onChange(of: noticeState) { previous, next in
             if let initialNoticeID {
                 // Waiting for initial data is different from an observed request
