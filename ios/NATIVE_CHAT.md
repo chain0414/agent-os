@@ -798,3 +798,9 @@ keyboard layout and real mobile-network behavior still need manual validation:
     client message identity after confirmation, and failure editing/retry. Kill
     the app during a send: reopen must retain an uncertain record without sending
     again. Verify that the earlier completed reply keeps Copy/Share throughout.
+
+## 待处理交互
+
+当前轮次的非阻塞输入与仍未结束的阻塞交互在输入框上方共用一个水平分页区域，带序号和左右按钮；切页保留每项草稿。已接受或终态请求退出卡片，失败及不确定结果保留恢复入口。交互不再同时挂在时间线／末尾重复显示；普通通知仍在原位置。展开特定请求后，该请求结束会自动关闭表单。
+
+历史非阻塞请求不再追加／固定到最新底部，继续对话后可从「会话菜单 → 交互与通知」查看，状态不伪造为 resolved；阻塞审批不受历史窗口影响。时间线跟随策略只参考实际显示的当前卡片，避免旧请求阻止跟随新消息。
