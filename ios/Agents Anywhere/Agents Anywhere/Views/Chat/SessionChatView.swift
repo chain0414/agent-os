@@ -22,6 +22,8 @@ struct SessionChatView: View, Equatable {
     @State private var pendingTakeover: Bool?
     @State private var hasStartedLoading = false
     @State private var keyboardRouter = ChatKeyboardDismissalRouter()
+    @State private var titleVisibility = ChatTitleVisibility()
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var takeoverPillHeight: CGFloat = 32
@@ -107,6 +109,10 @@ struct SessionChatView: View, Equatable {
                 }
         }
         .environment(\.chatKeyboardDismissalRouter, keyboardRouter)
+        .environment(\.chatTitleVisibility, titleVisibility)
+        .onAppear { titleVisibility.begin() }
+        .onDisappear { titleVisibility.end() }
+        .onChange(of: voiceOverEnabled, initial: true) { _, enabled in titleVisibility.setAlwaysVisible(enabled) }
         .environment(\.dismissChatKeyboard) {
             keyboardRouter.dismiss()
             session.composer.isFocused = false
@@ -114,11 +120,12 @@ struct SessionChatView: View, Equatable {
         .modifier(ChatPageToolbar(title: session.metadata?.title ?? String(localized: "会话"),
             subtitle: [session.metadata?.runtimeName ?? session.metadata?.runtime ?? String(localized: "Agent"),
                 deviceName ?? session.metadata?.connectorId].compactMap { $0 }.joined(separator: " · "),
-            status: model.headerStatus, alignsTitleLeading: true, onMenu: onMenu))
+            status: model.headerStatus, alignsTitleLeading: true, titleVisibility: titleVisibility, onMenu: onMenu))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { sheet = .files } label: { AppSymbol("folder") }
                     .accessibilityLabel(String(localized: "文件管理"))
+                    .accessibilityIdentifier("chat.header.files")
                     .disabled(session.metadata?.cwd?.isEmpty != false)
                 Menu {
                     Button(String(localized: "会话详情与导出"), systemImage: "info.circle") { sheet = .details }
@@ -134,6 +141,7 @@ struct SessionChatView: View, Equatable {
                     Button(String(localized: "复制会话 ID"), systemImage: "number") { UIPasteboard.general.string = session.id }
                 } label: { AppSymbol("ellipsis") }
                 .accessibilityLabel(String(localized: "会话菜单"))
+                .accessibilityIdentifier("chat.header.menu")
             }
         }
         .modifier(SessionTakeoverConfirmation(pending: $pendingTakeover, isDsh: model.isDsh) { enabled in

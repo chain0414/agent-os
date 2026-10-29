@@ -30,6 +30,7 @@ struct ChatTimelineView: View {
     @Environment(\.sidebarDrawerIsTransitioning) private var sidebarIsTransitioning
     @Environment(\.sidebarDrawerObscuresDetail) private var sidebarObscuresDetail
     @Environment(\.dismissChatKeyboard) private var dismissKeyboard
+    @Environment(\.chatTitleVisibility) private var titleVisibility
     @ScaledMetric(relativeTo: .caption) private var returnPillHeight: CGFloat = 32
 #if DEBUG
     private static let drawerLayoutLog = Logger(subsystem: "agents.anywhere", category: "drawer-layout")
@@ -81,6 +82,9 @@ struct ChatTimelineView: View {
             .defaultScrollAnchor(.top, for: .sizeChanges)
             .allowsHitTesting(model.isOpeningReady)
             .accessibilityHidden(!model.isOpeningReady)
+            .onChange(of: navigationIsSuspended) { _, suspended in
+                if suspended { titleVisibility?.scrollChanged(.idle) }
+            }
             .onScrollPhaseChange { _, phase, context in
                 // A phase callback carries a newer authoritative sample.
                 viewportUpdates.cancel()
@@ -101,6 +105,7 @@ struct ChatTimelineView: View {
                 // The drawer owns horizontal navigation. Do not interpret its
                 // interrupted scroll callbacks as a fresh vertical reading intent.
                 if navigationIsSuspended { return }
+                titleVisibility?.scrollChanged(mapped)
                 if scrolling.phaseChanged(mapped, viewport: current) {
                     // Release ScrollPosition's persistent edge target as soon
                     // as the user takes over, including interrupted animations.
@@ -397,6 +402,7 @@ struct ChatTimelineView: View {
 
 private struct ChatTimelineContent: View, Equatable {
     @Environment(\.dismissChatKeyboard) private var dismissKeyboard
+    @Environment(\.chatTitleVisibility) private var titleVisibility
     let model: SessionChatModel
     let onAttachment: (V2AttachmentContent) -> Void
     let onFile: (String) -> Void
