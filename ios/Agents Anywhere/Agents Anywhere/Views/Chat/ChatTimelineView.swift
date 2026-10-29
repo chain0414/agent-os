@@ -36,7 +36,9 @@ struct ChatTimelineView: View {
 #endif
 
     private var hasInteractions: Bool {
-        model.session.notices.notices.contains { $0.isVisible && $0.notice.type == "interaction" }
+        !SessionInteractionPager.items(model.session.notices.notices, sessionID: model.session.id,
+            currentTurnItemIDs: model.session.currentInteractionTurnItemIDs,
+            isLatestWindow: !model.session.hasNewerItems).isEmpty
     }
     private var viewport: TimelineViewport { viewportSample.value ?? scrolling.viewport }
     private var navigationIsSuspended: Bool { sidebarIsTransitioning || sidebarObscuresDetail }
