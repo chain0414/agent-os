@@ -18,22 +18,12 @@ final class ChatTimelineRowModel: Identifiable {
     @ObservationIgnored private var displaysFullText = false
     @ObservationIgnored private var showsAutomationRecords = false
     @ObservationIgnored private(set) var automation: TimelineAutomationPresentation?
-    @ObservationIgnored private var automationContextID: String?
-
-    private var displayedAutomation: TimelineAutomationPresentation? {
-        guard let automation else { return nil }
-        if case .instruction = automation { return automation }
-        return automation.automationID == automationContextID ? automation : nil
-    }
-
     init(_ value: V2TimelineItem, animate: Bool = false) {
         id = value.id; self.value = value
         let automation = TimelineAutomationPresentation.classify(value)
         self.automation = automation
-        let instruction: TimelineAutomationPresentation?
-        if case .instruction = automation { instruction = automation } else { instruction = nil }
-        structure = TimelineRowStructure(value, isAutomationHidden: instruction?.isHidden == true)
-        text = animate ? "" : value.displayText
+        structure = TimelineRowStructure(value)
+        text = animate ? "" : automation?.bodyText ?? value.displayText
         usesBlockTimeline = Self.needsBlockTimeline(value, text: text)
     }
 
@@ -44,7 +34,7 @@ final class ChatTimelineRowModel: Identifiable {
         if hasFlushed && value == next && (animate || displaysFullText) { settle(now: now); return false }
         hasFlushed = true
         if value != next { automation = TimelineAutomationPresentation.classify(next) }
-        let received = showsAutomationRecords ? next.displayText : displayedAutomation?.notificationText ?? next.displayText
+        let received = showsAutomationRecords ? next.displayText : automation?.bodyText ?? next.displayText
         let appending = received.hasPrefix(text)
         // Snapshots/corrections are authoritative replacements, not token deltas.
         if !appending { layoutGeneration += 1; markdown.reset() }
@@ -62,7 +52,7 @@ final class ChatTimelineRowModel: Identifiable {
         let nextUsesBlockTimeline = Self.needsBlockTimeline(next, text: displayed)
         if usesBlockTimeline != nextUsesBlockTimeline { usesBlockTimeline = nextUsesBlockTimeline }
         if value != next { value = next; entryCache = nil }
-        let nextStructure = TimelineRowStructure(next, isAutomationHidden: !showsAutomationRecords && displayedAutomation?.isHidden == true)
+        let nextStructure = TimelineRowStructure(next)
         if structure != nextStructure { structure = nextStructure }
         if !animate || now >= settlesAt { isRevealing = false }
         return started
@@ -75,13 +65,6 @@ final class ChatTimelineRowModel: Identifiable {
     func showAutomationRecords(_ show: Bool) {
         guard showsAutomationRecords != show else { return }
         showsAutomationRecords = show
-        hasFlushed = false
-        flush(value, animate: false, now: ProcessInfo.processInfo.systemUptime)
-    }
-
-    func associateAutomation(_ id: String?) {
-        guard automationContextID != id else { return }
-        automationContextID = id
         hasFlushed = false
         flush(value, animate: false, now: ProcessInfo.processInfo.systemUptime)
     }
@@ -170,37 +153,9 @@ final class SessionTimelinePresentation {
                 if !orderChanged, rows[index] !== row { orderChanged = true }
                 updated.append(row)
             }
-            // A page may start in the middle of a turn. Never infer a silent
-            // result without its matching instruction in this loaded window.
-            var instructions: [V2TurnID: Set<String>] = [:]
-            for row in updated {
-                if let turn = row.value.turnId, case let .instruction(id) = row.automation {
-                    instructions[turn, default: []].insert(id)
-                }
-            }
-            // Older snapshots have no turn IDs. In that case only the nearest
-            // user boundary may authorize an automation reply; every other user
-            // message clears the context, including malformed/unfinished controls.
-            var legacyInstructionID: String?
-            for row in updated {
-                if row.value.role == .user {
-                    legacyInstructionID = nil
-                    if row.value.turnId == nil, case let .instruction(id) = row.automation {
-                        legacyInstructionID = id
-                    }
-                } else if row.value.turnId != nil {
-                    // An explicitly identified turn also closes legacy context,
-                    // even when its first visible event is a tool or assistant.
-                    legacyInstructionID = nil
-                }
-                guard row.value.role == .assistant else { continue }
-                if let turn = row.value.turnId {
-                    let ids = instructions[turn]
-                    row.associateAutomation(ids?.count == 1 ? ids?.first : nil)
-                } else {
-                    row.associateAutomation(row.automation?.automationID == legacyInstructionID ? legacyInstructionID : nil)
-                }
-            }
+            // Complete automation envelopes carry their own visible body. Keep
+            // every message in the transcript, even if pagination omitted the
+            // matching instruction or the backend supplied no turn IDs.
             if started { nextBatchAt = now + ReplyPresentation.batchInterval }
             if orderChanged {
                 rows = updated

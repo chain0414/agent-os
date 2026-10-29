@@ -3,21 +3,21 @@ import Foundation
 /// A presentation-only interpretation of complete, known automation envelopes.
 /// Raw timeline values remain available for exports and the conversation menu.
 nonisolated enum TimelineAutomationPresentation: Equatable {
-    case instruction(String)
-    case silent(String)
+    case instruction(String, String)
+    case silent(String, String)
     case notification(String, String)
 
     var automationID: String {
-        switch self { case let .instruction(id), let .silent(id), let .notification(id, _): id }
+        switch self { case let .instruction(id, _), let .silent(id, _), let .notification(id, _): id }
     }
 
-    var isHidden: Bool {
-        switch self { case .instruction, .silent: true; case .notification: false }
-    }
-
-    var notificationText: String? {
-        if case let .notification(_, text) = self { return text }
-        return nil
+    /// Automation decisions govern delivery notifications, not transcript visibility.
+    /// Preserve the user's instruction and the assistant's response; only strip
+    /// the complete control envelope from the presentation.
+    var bodyText: String {
+        switch self {
+        case let .instruction(_, text), let .silent(_, text), let .notification(_, text): text
+        }
     }
 
     static func classify(_ item: V2TimelineItem) -> Self? {
@@ -32,12 +32,12 @@ nonisolated enum TimelineAutomationPresentation: Equatable {
         case .user:
             guard Set(fields.keys).isSubset(of: ["automation_id", "current_time_iso", "instructions"]),
                   let instructions = fields["instructions"], !instructions.isEmpty else { return nil }
-            return .instruction(id)
+            return .instruction(id, instructions)
         case .assistant:
             guard Set(fields.keys) == ["automation_id", "decision", "message"],
                   let message = fields["message"], !message.isEmpty else { return nil }
             switch fields["decision"] {
-            case "DONT_NOTIFY": return .silent(id)
+            case "DONT_NOTIFY": return .silent(id, message)
             case "NOTIFY": return .notification(id, message)
             default: return nil
             }
