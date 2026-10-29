@@ -41,7 +41,7 @@ struct ChatComposerDock: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let sessionChat {
+            if let sessionChat, !draft.isVoiceInputActive {
                 CommandSuggestionPanel(chat: sessionChat, draft: draft, forced: $showsCommandMenu)
             }
             ChatComposer(draft: draft, editor: editor, isStreaming: isStreaming,

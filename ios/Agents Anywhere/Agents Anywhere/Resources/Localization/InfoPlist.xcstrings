@@ -52,7 +52,24 @@
           }
         }
       }
+    },
+  "NSMicrophoneUsageDescription" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Transcribe your speech into a message draft for you to review and send."
+        }
+      },
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "将你说的话转成消息草稿，由你确认后发送。"
+        }
+      }
     }
+  }
   },
   "version" : "1.0"
 }

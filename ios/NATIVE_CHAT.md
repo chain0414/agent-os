@@ -145,6 +145,23 @@ Semantic error and availability colors remain separate from the primary color.
   group to the top. The final page keeps the prompt's height as a start-of-session
   marker, preventing a second jump when loading ends.
 
+### 语音输入
+
+新会话和已有会话的输入框旁都有麦克风按钮：点按开始，再次点按结束；转写只进入当前草稿，用户检查、修改后手动发送。录音与收尾期间暂停编辑和发送，取消恢复录音前的文字，附件保持不变。离开页面、进入后台或音频中断时停止采集并保留已经显示的文字。
+
+识别使用 Apple 的 `SpeechAnalyzer`，优先 `SpeechTranscriber`，设备或当前键盘语言不支持时尝试设备端 `DictationTranscriber`；无法取得键盘语言时使用系统首选语言。只需要麦克风权限，无第三方 ASR API Key；音频不落盘，也不发送给 AA Server、Codex 或 DSH。首次使用某种语言可能需要联网下载系统模型，下载期间可以取消；不支持的设备或语言可继续使用键盘听写。
+
+模型和音频会话由识别服务管理，界面状态及草稿由 `ComposerVoiceInput` 管理。回调绑定到单次录音和草稿，中文候选文字未确认时不启动录音，开始前保存 UTF-16 选区，暂定结果按音频时间范围更新。最终结果排空前不能发送；收尾超时保留已转写的文字并允许重试。
+
+本功能的测试边界：SwiftPM 使用假识别器检查取消、迟到回调、草稿替换、Unicode 选区、发送保护和中间结果合并；`Tests/VoiceInputProbe.swift` 使用真实输入框与合成 ASR 事件检查模拟器界面。后者不访问网络、不录音、不发送消息，运行方式：
+
+```sh
+python3 ios/scripts/probe-voice-input.py --device <booted-simulator-udid> --output ios/.build/voice-probe
+xcrun simctl launch <booted-simulator-udid> com.agentsanywhere.voice-input-probe recording
+```
+
+可传入 `empty-new-session`、`recording`、`finishing`、`download`、`narrow`、`large` 和 `error` 查看不同合成状态。真机麦克风、语言模型下载、中文与英文混说的准确率、蓝牙切换、离线识别以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。
+
 ## Session presentation and files
 
 - Tools use a single-line, monospaced marker with a disclosure chevron. Commands,

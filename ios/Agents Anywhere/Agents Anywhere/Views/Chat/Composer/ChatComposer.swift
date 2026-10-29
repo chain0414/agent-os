@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ChatComposer: View {
     @Bindable var draft: ComposerDraft
@@ -22,12 +23,15 @@ struct ChatComposer: View {
     var onDraftChange: () -> Void = {}
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Namespace private var glass
+    @State var voice = ComposerVoiceInput(recognizer: ComposerSpeechRecognizer())
 
     var body: some View {
         GlassEffectContainer(spacing: 12) {
             VStack(spacing: 0) {
-                if !draft.attachments.isEmpty { attachmentTray }
+                if !draft.attachments.isEmpty { attachmentTray.disabled(voice.isActive) }
+                if voice.isActive { voiceStatus }
                 ComposerLayout(expanded: draft.isExpanded, maximumEditorHeight: maximumEditorHeight, controls: controls) {
                     Button(action: onOptions) {
                         AppSymbol("plus", size: 24)
@@ -35,6 +39,7 @@ struct ChatComposer: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(voice.isActive)
                     .accessibilityLabel(String(localized: "附件与对话选项"))
                     .accessibilityIdentifier("chat.composer.options")
 
@@ -46,10 +51,10 @@ struct ChatComposer: View {
                                 .foregroundStyle(.secondary)
                                 .allowsHitTesting(false)
                         }
-                        NativeComposerEditor(draft: draft, controller: editor, maximumHeight: maximumEditorHeight, onCommandSend: onSend)
+                        NativeComposerEditor(draft: draft, controller: editor, maximumHeight: maximumEditorHeight, onCommandSend: sendIfReady)
                     }
 
-                    Button(action: isStreaming ? onStop : onSend) {
+                    Button(action: isStreaming ? onStop : sendIfReady) {
                         AppSymbol(isStreaming ? "stop.fill" : "arrow.up", size: isStreaming ? 13 : 18)
                             .contentTransition(.symbolEffect(.replace))
                             .foregroundStyle(AppTheme.primaryControlForeground(colorScheme))
@@ -64,6 +69,19 @@ struct ChatComposer: View {
                     .accessibilityHint(draft.isComposing ? String(localized: "请先确认输入法候选文字") : "")
                     .accessibilityIdentifier("chat.composer.send")
 
+                    Button(action: toggleVoice) {
+                        Image(systemName: voice.phase == .recording ? "stop.circle.fill" : "mic")
+                            .font(.system(size: 20))
+                            .foregroundStyle(voice.isActive ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                            .frame(width: controls.touchTarget, height: controls.touchTarget)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(voice.isActive ? voice.phase != .recording : isBusy || !draft.isValid || draft.isComposing)
+                    .accessibilityLabel(voice.phase == .recording ? String(localized: "结束录音") : String(localized: "语音输入"))
+                    .accessibilityHint(String(localized: "转成文字后，确认再发送。"))
+                    .accessibilityIdentifier("chat.composer.voice")
+
                     if showsCommands {
                         Button(action: onCommands) {
                             AppSymbol("command", size: 18)
@@ -72,6 +90,7 @@ struct ChatComposer: View {
                                 .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(voice.isActive)
                         .accessibilityLabel(String(localized: "指令"))
                         .accessibilityAddTraits(commandsActive ? .isSelected : [])
                         .accessibilityIdentifier("chat.composer.commands")
@@ -90,6 +109,64 @@ struct ChatComposer: View {
         // the draft from the page root re-evaluated the whole conversation.
         .onChange(of: draft.text) { _, _ in onDraftChange() }
         .onChange(of: draft.attachments) { _, _ in onDraftChange() }
+        .onChange(of: ObjectIdentifier(draft)) { _, _ in voice.interrupt() }
+        .onChange(of: draft.isValid) { _, valid in if !valid { voice.interrupt() } }
+        .onChange(of: draft.isVoiceInputActive) { _, active in if !active { voice.interrupt() } }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { voice.interrupt() } }
+        .onDisappear { voice.interrupt() }
+        .alert(String(localized: "语音输入"), isPresented: Binding(get: { voice.error != nil }, set: { if !$0 { voice.error = nil } })) {
+            if voice.error == .microphoneDenied {
+                Button(String(localized: "打开设置")) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            }
+            Button(String(localized: "好"), role: .cancel) { voice.error = nil }
+        } message: { Text(voice.error?.message ?? "") }
+    }
+
+    private func sendIfReady() {
+        guard !voice.isActive, !draft.isVoiceInputActive else { return }
+        onSend()
+    }
+
+    private func toggleVoice() {
+        if voice.phase == .recording { voice.finish(); return }
+        guard !voice.isActive, !draft.isComposing else { return }
+        // Read the keyboard locale/selection before dismissing it. Do not commit
+        // IME marked text on the user's behalf.
+        let language = editor.textView?.textInputMode?.primaryLanguage
+            ?? Locale.preferredLanguages.first ?? Locale.current.identifier
+        let selection = editor.textView?.selectedRange
+        editor.finishEditing()
+        voice.start(draft: draft, locale: Locale(identifier: language), selection: selection)
+    }
+
+    private var voiceStatus: some View {
+        HStack(spacing: 8) {
+            if voice.phase != .recording { ProgressView().controlSize(.small) }
+            Text(voiceStatusText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("chat.composer.voice.status")
+            Spacer(minLength: 4)
+            Button(String(localized: "取消录音")) { voice.cancel() }
+                .font(.footnote)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("chat.composer.voice.cancel")
+        }
+        .padding(.horizontal, controls.textInset)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var voiceStatusText: String {
+        switch voice.phase {
+        case .idle: ""
+        case .preparing: String(localized: "正在准备语音输入…")
+        case .downloadingModel: String(localized: "正在下载语音模型…")
+        case .recording: String(localized: "正在录音…")
+        case .finishing: String(localized: "正在完成转写…")
+        }
     }
 
     private var attachmentTray: some View {

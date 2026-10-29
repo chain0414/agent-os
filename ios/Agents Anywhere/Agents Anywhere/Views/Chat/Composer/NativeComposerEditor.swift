@@ -17,12 +17,14 @@ final class ComposerEditorController {
     /// Check native marked text before ending editing. unmarkText() only removes
     /// the mark; it cannot select the user's intended Chinese candidate.
     func committedTextForSend() async -> String? {
+        guard draft?.isVoiceInputActive != true else { return nil }
         guard let textView else { return draft?.isComposing == false ? draft?.text : nil }
         guard textView.markedTextRange == nil else { synchronize(); return nil }
         let originalDraft = draft
         textView.resignFirstResponder()
         await Task.yield()
-        guard !Task.isCancelled, draft === originalDraft, textView.markedTextRange == nil else { return nil }
+        guard !Task.isCancelled, draft === originalDraft, draft?.isVoiceInputActive != true,
+              textView.markedTextRange == nil else { return nil }
         synchronize()
         return textView.text ?? ""
     }
@@ -87,6 +89,8 @@ struct NativeComposerEditor: UIViewRepresentable {
         context.coordinator.parent = self
         controller.textView = view; controller.draft = draft
         view.commandSend = onCommandSend
+        view.isEditable = !draft.isVoiceInputActive
+        view.isSelectable = !draft.isVoiceInputActive
         // Do not replace native pre-edit text or disrupt its selection/candidate bar.
         if view.markedTextRange == nil, view.text != draft.text {
             let selection = view.selectedRange

@@ -83,7 +83,7 @@ def main():
         plural = localizable.get(key, {}).get("localizations", {}).get("en", {}).get("variations", {}).get("plural", {})
         if not {"one", "other"} <= plural.keys():
             errors.append(f"English plural rules missing for {key!r}")
-    for key in ("NSCameraUsageDescription", "NSLocalNetworkUsageDescription"):
+    for key in ("NSCameraUsageDescription", "NSLocalNetworkUsageDescription", "NSMicrophoneUsageDescription"):
         if key not in catalogs.get("InfoPlist", {}):
             errors.append(f"Permission dialog translation missing: {key}")
     project = (APP.parent / "Agents Anywhere.xcodeproj/project.pbxproj").read_text()

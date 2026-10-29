@@ -28,10 +28,11 @@ final class ComposerDraft {
     var attachments: [ChatAttachment] = []
     var isFocused = false
     var isComposing = false
+    var isVoiceInputActive = false
 
-    var isExpanded: Bool { isFocused || !text.isEmpty || !attachments.isEmpty }
+    var isExpanded: Bool { isFocused || isVoiceInputActive || !text.isEmpty || !attachments.isEmpty }
     var hasSendableContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
-    var canAttemptSend: Bool { !isComposing && hasSendableContent }
+    var canAttemptSend: Bool { !isComposing && !isVoiceInputActive && hasSendableContent }
 
     func clear() { text = ""; attachments = []; isComposing = false }
     func invalidate() { clear(); isFocused = false; isValid = false }
