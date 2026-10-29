@@ -41,6 +41,8 @@ from connector.server.ingest import ConnectorIngestRejectedError
 MAX_RETRY_DELAY_SECONDS = 30.0
 # How long an ingest call waits for its subscription's "subscribed" item.
 SUBSCRIBE_CONFIRM_TIMEOUT_SECONDS = 30.0
+# Known compatible native history projections; unknown future semantics remain rejected.
+SUPPORTED_PROJECTION_VERSIONS = (2, 3, 4, 5)
 
 # Called once when the relay task ends for any reason other than close().
 RelayExitHandler = Callable[["SyncRelay", BaseException | None], None]
@@ -81,7 +83,7 @@ def _checkpoint(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
     seq, fingerprint = value.get("throughSeq"), value.get("historyHash")
-    if (value.get("version") != 1 or value.get("projectionVersion") not in (2, 3)
+    if (value.get("version") != 1 or value.get("projectionVersion") not in SUPPORTED_PROJECTION_VERSIONS
         or type(seq) is not int or not -1 <= seq <= 9007199254740991
         or type(value.get("settled")) is not bool or not isinstance(fingerprint, str)
         or len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint)):
@@ -453,7 +455,7 @@ class SyncRelay:
             async for event in self.client.stream("sync", {"subscriptionId": subscription_id, "checkpointVersion": 1}):
                 if event.get("kind") != "subscribed":
                     continue
-                if event.get("projectionVersion") not in (2, 3):
+                if event.get("projectionVersion") not in SUPPORTED_PROJECTION_VERSIONS:
                     raise ValueError("Unsupported DSH projection version")
                 self.durable_checkpoints = event.get("checkpointVersion") == 1
                 self.projection_version = event["projectionVersion"]

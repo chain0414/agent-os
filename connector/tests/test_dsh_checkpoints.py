@@ -34,7 +34,7 @@ def timeline_notice():
 
 
 @pytest.mark.parametrize("fail", [False, True])
-@pytest.mark.parametrize("projection_version", [2, 3])
+@pytest.mark.parametrize("projection_version", [2, 3, 4, 5])
 def test_ingestion_precedes_checkpoint_and_ack_and_json_survives_restart(tmp_path, fail, projection_version):
     checkpoint = {**CHECKPOINT, "projectionVersion": projection_version}
     async def run():
@@ -84,7 +84,8 @@ def test_ingestion_precedes_checkpoint_and_ack_and_json_survives_restart(tmp_pat
     asyncio.run(run())
 
 
-def test_load_ack_returns_checkpoint_and_invalid_version_falls_back(tmp_path):
+@pytest.mark.parametrize("projection_version", [6, 99])
+def test_load_ack_returns_checkpoint_and_invalid_version_falls_back(tmp_path, projection_version):
     async def run():
         host, store = bound_host(tmp_path / "connector-state.json", AsyncMock())
         await host.sync_state_write(KEY, CHECKPOINT)
@@ -94,19 +95,20 @@ def test_load_ack_returns_checkpoint_and_invalid_version_falls_back(tmp_path):
         assert await relay.load_checkpoint("native") == CHECKPOINT
         # Without durable checkpoints the stored value is never read.
         assert await ready_relay(host, durable=False).load_checkpoint("native") is None
-        await host.sync_state_write(KEY, {**CHECKPOINT, "projectionVersion": 99})
+        await host.sync_state_write(KEY, {**CHECKPOINT, "projectionVersion": projection_version})
         assert await relay.load_checkpoint("native") is None
         await relay.delete_checkpoint("native")
         assert await host.sync_state_read(KEY) is None
     asyncio.run(run())
 
 
-def test_invalid_checkpoint_cannot_be_saved(tmp_path):
+@pytest.mark.parametrize("projection_version", [6, 99])
+def test_invalid_checkpoint_cannot_be_saved(tmp_path, projection_version):
     async def run():
         host, store = bound_host(tmp_path / "connector-state.json", AsyncMock())
         relay = ready_relay(host)
         with pytest.raises(ValueError, match="Invalid DSH checkpoint"):
-            await relay.save_checkpoint("native", {**CHECKPOINT, "projectionVersion": 99})
+            await relay.save_checkpoint("native", {**CHECKPOINT, "projectionVersion": projection_version})
         assert await host.sync_state_read(KEY) is None
         assert not store.flush()
         await relay.close()
