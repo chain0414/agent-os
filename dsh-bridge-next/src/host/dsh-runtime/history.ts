@@ -8,7 +8,7 @@ import { enrichToolResult, parentToolItem, resultContent, toolContent } from './
 import { json, record, wellFormedJson, type Data, type ItemStatus, type ItemType, type TimelineItem } from './types.js'
 
 // Bump when replay semantics change so old checkpoints rebuild their timeline.
-export const PROJECTION_VERSION = 3
+export const PROJECTION_VERSION = 4
 
 // Older persisted logs and fixtures can still carry the pre-rc.1 chunk vocabulary.
 type LegacyChunk = { type: 'assistant/chunk', seq: SessionEvent['seq'], time: number,
@@ -47,6 +47,8 @@ export function createProjection(externalId: string, platformId: string, fingerp
   }
   let turnId: string | null = null
   let turnStart = -1
+  let nativeTurn: number | undefined
+  let turnTiming: Data | undefined
   let nextOrder = 0
 
   // The platform is the only reader of contentHash, so it is computed once per
@@ -75,7 +77,9 @@ export function createProjection(externalId: string, platformId: string, fingerp
       // The same native replay assigns dense positions in history and live mode.
       // This stays compatible with the backend's existing INTEGER order column.
       orderSeq: previous?.orderSeq ?? ++nextOrder,
-      revision: Number(event.seq) + 1, contentHash: '', content,
+      revision: Number(event.seq) + 1, contentHash: '',
+      content: turnId !== null && (!previous || previous.turnId === turnId) && turnTiming
+        ? { ...content, turnTiming: { ...turnTiming } } : content,
       source: { runtime: 'dsh', sessionId: externalId, itemId: key, itemType: event.type,
         seq: previous?.source.seq ?? anchor, lastSeq: Number(event.seq), time: event.time },
     }
@@ -137,14 +141,34 @@ export function createProjection(externalId: string, platformId: string, fingerp
     if (event.type === 'turn/start') {
       turnStart = Number(event.seq)
       turnId = itemId(externalId, 'turn', String(turnStart))
+      nativeTurn = event.data.turn
+      turnTiming = { status: 'running',
+        ...(Number.isFinite(event.time) && event.time >= 0 ? { startedAt: event.time } : {}) }
       put('turn.start', String(turnStart), event, 'turn.start', 'done', 'system', { kind: 'turn_start', turn: event.data.turn })
     } else if (event.type === 'turn/end') {
       const reason = event.data.reason
       const status: ItemStatus = reason.kind === 'error' ? 'failed' :
         ['aborted', 'interrupted'].includes(reason.kind) ? 'interrupted' : 'done'
+      // Use only matching native boundaries. Server ingestion timestamps are not
+      // execution time, and parallel tools must never have their durations summed.
+      const startedAt = turnTiming?.startedAt
+      const matchingTurn = turnId !== null && nativeTurn === event.data.turn
+      if (matchingTurn) {
+        turnTiming = { status,
+          ...(typeof startedAt === 'number' ? { startedAt } : {}),
+          ...(Number.isFinite(event.time) && event.time >= 0 ? { completedAt: event.time } : {}),
+          ...(typeof startedAt === 'number' && Number.isFinite(event.time) && event.time >= startedAt
+            ? { durationMs: event.time - startedAt } : {}) }
+      }
       for (const [id, item] of items) {
-        if (item.turnId !== turnId || item.status !== 'running') continue
-        const closed = { ...item, status: status === 'done' ? 'interrupted' as const : status,
+        if (item.turnId !== turnId) continue
+        const closesRunning = item.status === 'running'
+        // Completed tools also need this revision: their result can precede the
+        // native turn end, which is the first authoritative elapsed-time value.
+        if (!closesRunning && !(matchingTurn && turnTiming)) continue
+        const closed = { ...item,
+          status: closesRunning ? (status === 'done' ? 'interrupted' as const : status) : item.status,
+          content: matchingTurn && turnTiming ? { ...item.content, turnTiming: { ...turnTiming } } : item.content,
           revision: Number(event.seq) + 1, source: { ...item.source, lastSeq: Number(event.seq) } }
         needsHash.add(id)
         items.set(id, closed)
@@ -152,6 +176,8 @@ export function createProjection(externalId: string, platformId: string, fingerp
       }
       put('turn.end', String(turnStart), event, 'turn.end', status, 'system', { kind: 'turn_end', reason: json(reason) })
       turnId = null
+      nativeTurn = undefined
+      turnTiming = undefined
     } else if (event.type === 'step/start') {
       steps.set(stepKey, Number(event.seq))
     } else if (event.type === 'user/message') {
