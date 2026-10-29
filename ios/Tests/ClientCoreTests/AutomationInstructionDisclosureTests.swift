@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import Observation
+import Synchronization
 @testable import ClientCore
 
 @Suite @MainActor struct AutomationInstructionDisclosureTests {
@@ -44,7 +46,10 @@ import Testing
         let row = ChatTimelineRowModel(try decode(raw))
         #expect(row.automationInstruction?.text == "Run the scheduled daily report.")
         #expect(row.automationInstruction?.timestamp == Date(timeIntervalSince1970: 1))
+        let changed = Mutex(false)
+        withObservationTracking { _ = row.automationInstruction } onChange: { changed.withLock { $0 = true } }
         row.showAutomationRecords(true)
+        #expect(changed.withLock { $0 })
         #expect(row.automationInstruction == nil)
         #expect(row.text == row.value.displayText)
     }
