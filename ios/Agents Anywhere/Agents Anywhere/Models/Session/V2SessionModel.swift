@@ -79,6 +79,8 @@ final class V2SessionModel: Identifiable {
     let runtime = V2SessionRuntimeModel()
     let notices = SessionNoticeStore()
     let interactionPager = SessionInteractionPager()
+    /// Structural IDs only: streaming token changes do not invalidate the dock.
+    private(set) var currentInteractionTurnItemIDs: Set<String> = []
     private(set) var metadata: V2SessionMeta?
     private(set) var timeline: [V2TimelineItemModel] = []
     private(set) var connection = V2SessionConnectionState.inactive
@@ -229,6 +231,8 @@ final class V2SessionModel: Identifiable {
         // A streamed token updates one existing row. Keep the id index across
         // ticks and only republish the array when membership or order changed.
         let items = data?.items ?? []
+        let turnIDs = SessionInteractionPager.latestTurnItemIDs(in: items)
+        if currentInteractionTurnItemIDs != turnIDs { currentInteractionTurnItemIDs = turnIDs }
         var rows: [V2TimelineItemModel] = []
         rows.reserveCapacity(items.count)
         var orderChanged = items.count != timeline.count
@@ -308,6 +312,7 @@ final class V2SessionModel: Identifiable {
         attachmentPreviews.clear()
         notices.clear()
         interactionPager.synchronize([])
+        currentInteractionTurnItemIDs = []
         connection = .inactive; isValid = false; repository = nil
     }
 

@@ -9,7 +9,9 @@ struct SessionInteractionDock: View {
     var metrics = SessionInteractionMetrics()
 
     private var items: [SessionNoticeModel] {
-        SessionInteractionPager.items(chat.session.notices.notices, sessionID: chat.session.id)
+        SessionInteractionPager.items(chat.session.notices.notices, sessionID: chat.session.id,
+            currentTurnItemIDs: chat.session.currentInteractionTurnItemIDs,
+            isLatestWindow: !chat.session.hasNewerItems)
     }
     private var pager: SessionInteractionPager { chat.session.interactionPager }
 

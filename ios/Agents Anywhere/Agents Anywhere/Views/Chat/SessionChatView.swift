@@ -122,6 +122,12 @@ struct SessionChatView: View, Equatable {
                     .disabled(session.metadata?.cwd?.isEmpty != false)
                 Menu {
                     Button(String(localized: "会话详情与导出"), systemImage: "info.circle") { sheet = .details }
+                    if session.notices.notices.contains(where: \.isVisible) {
+                        Button(String(localized: "交互与通知"), systemImage: "bubble.left.and.bubble.right") {
+                            expandedNoticeID = nil
+                            sheet = .notices
+                        }.accessibilityIdentifier("chat.session.notices")
+                    }
                     Toggle(String(localized: "显示自动化记录"), isOn: Binding(
                         get: { model.timeline.showsAutomationRecords },
                         set: { model.timeline.showsAutomationRecords = $0 }))
