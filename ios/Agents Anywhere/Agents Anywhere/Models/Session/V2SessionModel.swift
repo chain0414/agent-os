@@ -78,6 +78,7 @@ final class V2SessionModel: Identifiable {
     let scope: V2ClientScope
     let runtime = V2SessionRuntimeModel()
     let notices = SessionNoticeStore()
+    let interactionPager = SessionInteractionPager()
     private(set) var metadata: V2SessionMeta?
     private(set) var timeline: [V2TimelineItemModel] = []
     private(set) var connection = V2SessionConnectionState.inactive
@@ -306,6 +307,7 @@ final class V2SessionModel: Identifiable {
         userMessageExpansion.clear()
         attachmentPreviews.clear()
         notices.clear()
+        interactionPager.synchronize([])
         connection = .inactive; isValid = false; repository = nil
     }
 

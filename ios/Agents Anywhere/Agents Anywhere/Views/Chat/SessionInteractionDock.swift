@@ -1,56 +1,51 @@
 import SwiftUI
 
+/// All outstanding interactions share one horizontal card slot. Informational
+/// notifications remain in the transcript instead of becoming response pages.
 struct SessionInteractionDock: View {
     let chat: SessionChatModel
     let onShowAll: (String) -> Void
-    @State private var selectedID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var metrics = SessionInteractionMetrics()
 
-    private var items: [SessionNoticeModel] { chat.session.notices.notices.filter { $0.blocks(chat.session.id) } }
-    private var selectedIndex: Int { items.firstIndex { $0.id == selectedID } ?? 0 }
-    // Reserve the same peeking space for one or several cards, so resolving a
-    // queued item does not resize the entire dock. Status text never measures it.
-    private let peek: CGFloat = 12
-    private var pageHeight: CGFloat {
-        metrics.compactHeight
+    private var items: [SessionNoticeModel] {
+        SessionInteractionPager.items(chat.session.notices.notices, sessionID: chat.session.id)
     }
+    private var pager: SessionInteractionPager { chat.session.interactionPager }
 
     var body: some View {
-        let motionReduced = reduceMotion
-        if !items.isEmpty {
-            ScrollView(.vertical) {
-                VStack(spacing: 8) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+        let pages = items
+        Group {
+            if !pages.isEmpty {
+                pagesView(pages)
+            }
+        }
+        .onChange(of: pages.map(\.id), initial: true) { _, next in pager.synchronize(next) }
+    }
+    private func pagesView(_ pages: [SessionNoticeModel]) -> some View {
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, item in
                         SessionInteractionCard(item: item, chat: chat,
-                            page: items.count > 1 ? "\(index + 1)/\(items.count)" : nil,
-                            height: pageHeight, onExpand: { onShowAll(item.id) })
-                            .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                                content.scaleEffect(motionReduced ? 1 : 1 - min(abs(phase.value), 1) * 0.04)
-                                    .opacity(1 - min(abs(phase.value), 1) * 0.3)
-                            }
-                            .accessibilityAction(named: String(localized: "下一项")) { step(1) }
-                            .accessibilityAction(named: String(localized: "上一项")) { step(-1) }
+                            page: pages.count > 1 ? "\(index + 1)/\(pages.count)" : nil,
+                            height: metrics.compactHeight, onExpand: { onShowAll(item.id) },
+                            onPrevious: pages.count > 1 ? { step(-1) } : nil,
+                            onNext: pages.count > 1 ? { step(1) } : nil,
+                            canGoPrevious: index > 0, canGoNext: index + 1 < pages.count)
+                            .containerRelativeFrame(.horizontal)
+                            .accessibilityHidden(pager.selectedID != nil && pager.selectedID != item.id)
                             .id(item.id)
                     }
                 }.scrollTargetLayout()
             }
-            .contentMargins(.vertical, peek, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
-            .scrollPosition(id: $selectedID, anchor: .center)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: Binding(get: { pager.selectedID }, set: { pager.select($0) }))
             .scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
-            .frame(height: pageHeight + peek * 2).clipped()
-            .onChange(of: items.map(\.id), initial: true) { old, next in
-                if let selectedID, next.contains(selectedID) { return }
-                let index = old.firstIndex(of: selectedID ?? "") ?? 0
-                selectedID = next.isEmpty ? nil : next[min(index, next.count - 1)]
-            }
-            .padding(.horizontal, 24)
-        }
+            .frame(height: metrics.compactHeight).clipped()
+            .accessibilityIdentifier("chat.interactions.pager")
+            .padding(.horizontal, 24).padding(.vertical, 8)
     }
     private func step(_ delta: Int) {
-        let index = selectedIndex + delta
-        guard items.indices.contains(index) else { return }
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { selectedID = items[index].id }
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { pager.step(delta) }
     }
 }

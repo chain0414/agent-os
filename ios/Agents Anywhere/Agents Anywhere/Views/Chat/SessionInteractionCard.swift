@@ -8,6 +8,10 @@ struct SessionInteractionCard: View {
     var page: String? = nil
     var height: CGFloat? = nil
     var onExpand: (() -> Void)? = nil
+    var onPrevious: (() -> Void)? = nil
+    var onNext: (() -> Void)? = nil
+    var canGoPrevious = false
+    var canGoNext = false
     @State private var destination: Destination?
     private enum Destination: String, Identifiable {
         case expanded, details
@@ -23,14 +27,27 @@ struct SessionInteractionCard: View {
                         .font(.subheadline)
                     Text(title).font(.subheadline.weight(.semibold))
                         .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    Button(String(localized: "操作详情")) { destination = .details }
-                        .font(.caption).fixedSize().frame(minHeight: 44)
+                    if let onPrevious, let onNext, let page {
+                        HStack(spacing: 0) {
+                            Button(action: onPrevious) { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+                                .disabled(!canGoPrevious).accessibilityLabel(String(localized: "上一项"))
+                                .accessibilityIdentifier("chat.interactions.previous")
+                            Text(page).font(.caption).monospacedDigit().fixedSize()
+                                .accessibilityIdentifier("chat.interactions.page")
+                            Button(action: onNext) { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+                                .disabled(!canGoNext).accessibilityLabel(String(localized: "下一项"))
+                                .accessibilityIdentifier("chat.interactions.next")
+                        }.buttonStyle(.plain)
+                    } else {
+                        Button(String(localized: "操作详情")) { destination = .details }
+                            .font(.caption).fixedSize().frame(minHeight: 44)
+                    }
                     Button {
                         if let onExpand { onExpand() } else { destination = .expanded }
                     } label: {
                         VStack(spacing: 2) {
                             Text(String(localized: "展开"))
-                            if let page { Text(page).font(.caption2).monospacedDigit() }
+                            if let page, onPrevious == nil { Text(page).font(.caption2).monospacedDigit() }
                         }.font(.caption).frame(minWidth: 44, minHeight: 44)
                     }.buttonStyle(.plain)
                 }

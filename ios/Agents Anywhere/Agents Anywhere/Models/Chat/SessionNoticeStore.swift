@@ -21,9 +21,11 @@ final class SessionNoticeModel: Identifiable {
     }
     var hasDraft: Bool { !choices.isEmpty || !custom.isEmpty || !fields.isEmpty }
     var isVisible: Bool {
-        guard submission != .unavailable else { return false }
+        guard submission != .unavailable, submission != .accepted else { return false }
         if notice.type == "notification" { return notice.status == .open }
-        return notice.type == "interaction" && [.open, .failed, .responding, .responseAccepted, .resolving].contains(notice.status)
+        // Accepted answers no longer need input. Keep in-flight/uncertain writes
+        // visible until acceptance, and let a newer failed revision restore retry.
+        return notice.type == "interaction" && [.open, .failed, .responding].contains(notice.status)
     }
     var timelineTargetID: String? {
         notice.source["timelineItemId"]?.stringValue ?? notice.context["timelineItemId"]?.stringValue

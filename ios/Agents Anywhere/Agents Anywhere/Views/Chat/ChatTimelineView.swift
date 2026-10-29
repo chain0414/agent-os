@@ -186,7 +186,7 @@ struct ChatTimelineView: View {
                     if store.target(for: anchor, width: width) == nil {
                         let rowID = anchor.id.components(separatedBy: ":block:")[0]
                         let groups = TimelineGrouping.groups(model.timeline.rows,
-                            interactionTargets: Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID)))
+                            interactionTargets: Set(model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }.compactMap(\.timelineTargetID)))
                         let entries = TimelineRenderEntry.build(groups: groups)
                         let target = entries.contains { $0.id == anchor.id } ? anchor.id
                             : entries.first { $0.group.rows.contains { $0.id == rowID } }?.id ?? rowID
@@ -294,7 +294,7 @@ struct ChatTimelineView: View {
         olderPull.cancel(); latestPull.cancel()
         scrolling.browseHistory()
         position.isPositionedByUser = true
-        let interactionTargets = Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID))
+        let interactionTargets = Set(model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }.compactMap(\.timelineTargetID))
         let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: interactionTargets)
         let layout = model.timeline.rows.first.flatMap { first in
             model.session.readingAnchor.historyLayout(firstRowID: first.id, entries: TimelineRenderEntry.build(groups: groups),
@@ -417,9 +417,10 @@ private struct ChatTimelineContent: View, Equatable {
             && lhs.keepsOlderPrompt == rhs.keepsOlderPrompt && lhs.historyAnchor == rhs.historyAnchor
     }
     var body: some View {
-        let visibleNotices = model.session.notices.notices.filter { $0.isVisible && !$0.blocks(model.session.id) }
-        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: Set(model.session.notices.notices
-            .filter(\.isVisible).compactMap(\.timelineTargetID)))
+        // Interactions have one shared pager above the composer, regardless of
+        // blocking scope or timeline target. Only notifications remain inline.
+        let visibleNotices = model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }
+        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: Set(visibleNotices.compactMap(\.timelineTargetID)))
         // Resolve notice targets once per body instead of once per row.
         let rowIDs = Set(model.timeline.rows.map(\.id))
         let noticesByTarget = Dictionary(grouping: visibleNotices.filter { $0.timelineTargetID != nil }) { $0.timelineTargetID! }
