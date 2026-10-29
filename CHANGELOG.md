@@ -7,7 +7,7 @@
 ### iOS
 
 - 当前输入请求共用一张带序号的卡片，可直接填写、左右切换并保留草稿；圆角边缘显示正常，横屏可展开填写，回答被接受后及时收起，历史非阻塞问卷仍可从「交互与通知」查看。（[d79d8226](https://github.com/anywhere-labs/Agents-Anywhere/commit/d79d8226)、[77baa3b6](https://github.com/anywhere-labs/Agents-Anywhere/commit/77baa3b6)、[9f1dee6e](https://github.com/anywhere-labs/Agents-Anywhere/commit/9f1dee6e)、[ce0451bc](https://github.com/anywhere-labs/Agents-Anywhere/commit/ce0451bc)、[45537974](https://github.com/anywhere-labs/Agents-Anywhere/commit/45537974)、[5a162554](https://github.com/anywhere-labs/Agents-Anywhere/commit/5a162554)）
-- 自动化消息默认隐藏内部控制标签并保留用户与助手正文，工具调用按轮次折叠，仍可从会话菜单查看完整原始记录。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)、[c57149dd](https://github.com/anywhere-labs/Agents-Anywhere/commit/c57149dd)）
+- 自动化消息默认隐藏内部控制标签并保留用户与助手正文，执行过程按轮次折叠并显示状态和可用的原生耗时，可展开工具明细或从会话菜单查看完整原始记录。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)、[c57149dd](https://github.com/anywhere-labs/Agents-Anywhere/commit/c57149dd)、[ae2ac025](https://github.com/anywhere-labs/Agents-Anywhere/commit/ae2ac025)、[303e8b23](https://github.com/anywhere-labs/Agents-Anywhere/commit/303e8b23)、[8663b20f](https://github.com/anywhere-labs/Agents-Anywhere/commit/8663b20f)、[daedd709](https://github.com/anywhere-labs/Agents-Anywhere/commit/daedd709)）
 - 长用户输入默认显示前 8 行，可逐级展开至 24 行或全文并收起，消息发送回显和布局切换后保留展开状态。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)）
 - 会话与审批输入框提供「收起键盘」按钮，收起后保留未发送的文字和附件。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)）
 - 减少长会话和超长回复横竖屏切换时的排版开销，切换布局时保留阅读锚点，阅读历史时不再将已加载记录裁回最近一页。（[4eeea968](https://github.com/anywhere-labs/Agents-Anywhere/commit/4eeea968)、[12b38b63](https://github.com/anywhere-labs/Agents-Anywhere/commit/12b38b63)）
