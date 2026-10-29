@@ -12,8 +12,12 @@ struct TimelineRowStructure: Equatable {
     let isStreamingText: Bool
     let groupKind: ChatTimelineGroup.Kind
     let reconnectAttempt: String?
+    let isAutomationHidden: Bool
+    let turnID: V2TurnID?
 
-    init(_ item: V2TimelineItem) {
+    init(_ item: V2TimelineItem, isAutomationHidden: Bool = false) {
+        self.isAutomationHidden = isAutomationHidden
+        turnID = item.turnId
         type = item.type; role = item.role; status = item.status
         startsTurn = item.startsVisibleTurn; isFileChange = item.isFileChange
         isReasoning = item.isReasoning; isStreamingText = item.isStreamingText

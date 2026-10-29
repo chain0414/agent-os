@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ChatComposer: View {
     @Bindable var draft: ComposerDraft
@@ -23,6 +24,7 @@ struct ChatComposer: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var glass
+    @State private var softwareKeyboardVisible = false
 
     var body: some View {
         GlassEffectContainer(spacing: 12) {
@@ -76,6 +78,16 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(commandsActive ? .isSelected : [])
                         .accessibilityIdentifier("chat.composer.commands")
                     }
+                    if softwareKeyboardVisible && draft.isFocused {
+                        Button { editor.finishEditing() } label: {
+                            Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 20))
+                                .frame(width: controls.touchTarget, height: controls.touchTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "收起键盘"))
+                        .accessibilityIdentifier("chat.composer.dismissKeyboard")
+                    }
                 }
             }
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: draft.isExpanded ? controls.expandedCornerRadius : controls.collapsedCornerRadius))
@@ -90,6 +102,14 @@ struct ChatComposer: View {
         // the draft from the page root re-evaluated the whole conversation.
         .onChange(of: draft.text) { _, _ in onDraftChange() }
         .onChange(of: draft.attachments) { _, _ in onDraftChange() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                  let screen = editor.textView?.window?.screen else { return }
+            softwareKeyboardVisible = frame.height > 0 && frame.minY < screen.bounds.height
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            softwareKeyboardVisible = false
+        }
     }
 
     private var attachmentTray: some View {

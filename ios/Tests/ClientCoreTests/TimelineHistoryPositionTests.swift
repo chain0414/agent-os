@@ -56,7 +56,7 @@ import Testing
             var history = TimelineHistoryPosition(id: 4, layout: layout(), offsetY: 0, topInset: 80)
             if explicitlyCancelled { history.cancelRestoration() }
             history.receivedPage(firstRowID: "earlier")
-            #expect(!history.isReadyToFinish)
+            #expect(history.isReadyToFinish == explicitlyCancelled)
             let correction = history.laidOut(layout(first: "earlier", y: 780), generation: explicitlyCancelled ? 4 : 5)
             #expect(correction == nil && history.isReadyToFinish)
         }
@@ -85,5 +85,54 @@ import Testing
         #expect(correction == 400)
         let unrelated = history.laidOut(layout(first: "earlier-tool", anchor: "other-tool", y: 900, edge: .bottom), generation: 8)
         #expect(unrelated == nil)
+    }
+
+    @Test @MainActor func lazyHistoryUsesTheMeasuredVisibleGroupInsteadOfTheOffscreenFirstMessage() throws {
+        let store = TimelineReadingAnchorStore()
+        let rows = try ["offscreen", "visible"].map { id in
+            ChatTimelineRowModel(try decode(itemObject(id: id, text: "Body")))
+        }
+        let groups = TimelineGrouping.groups(rows, interactionTargets: [])
+        store.measure(id: "offscreen", y: 80, height: 300, width: 320, isParagraph: false)
+        store.measure(id: "visible", y: 1500, height: 900, width: 320, isParagraph: false)
+        store.measure(id: "visible:block:0", y: 1700, height: 400, width: 320, isParagraph: true)
+        store.capture(top: 1850, width: 320, following: false)
+        let origin = try #require(store.historyLayout(firstRowID: "hidden-first", groups: groups, top: 1850, width: 320))
+        #expect(origin.anchorRowID == "visible" && origin.firstRowID == "hidden-first")
+        #expect(origin.y == 1500 && origin.edge == .top)
+        var history = TimelineHistoryPosition(id: 9, layout: origin, offsetY: 1800, topInset: 50)
+        history.receivedPage(firstRowID: "earlier-hidden")
+        let after = TimelineHistoryLayout(firstRowID: "earlier-hidden", anchorRowID: "visible", edge: .top, y: 2200)
+        #expect(history.laidOut(after, generation: 9) == 2500)
+        #expect(history.isReadyToFinish)
+        #expect(store.historyLayout(firstRowID: "hidden-first", groups: groups, top: 1850, width: 700) == nil)
+        #expect(store.historyLayout(firstRowID: "hidden-first", groups: groups, top: 1450, width: 320)?.anchorRowID == "visible")
+        #expect(store.historyLayout(firstRowID: "hidden-first", groups: groups, top: -50, width: 320)?.anchorRowID == "offscreen")
+    }
+
+    @Test @MainActor func lazyToolHistoryRetainsTheLastExistingToolAsItsTrailingAnchor() throws {
+        let store = TimelineReadingAnchorStore()
+        let rows = try ["first-tool", "last-tool"].map { id in
+            var raw = try itemObject(id: id)
+            raw["type"] = "tool"; raw["content"] = ["kind": "command", "command": "build"]
+            return ChatTimelineRowModel(try decode(raw))
+        }
+        let groups = TimelineGrouping.groups(rows, interactionTargets: [])
+        store.measure(id: "first-tool", y: 1000, height: 300, width: 320, isParagraph: false)
+        let origin = try #require(store.historyLayout(firstRowID: "first-tool", groups: groups, top: 1200, width: 320))
+        #expect(origin.anchorRowID == "last-tool" && origin.edge == .bottom && origin.y == 1300)
+    }
+
+    @Test func anEntirelyHiddenPageFinishesWithoutWaitingForAnUnmountedAnchor() {
+        var history = TimelineHistoryPosition(id: 10, layout: nil, offsetY: 0, topInset: 80)
+        history.receivedPage(firstRowID: "earlier-hidden")
+        #expect(history.isReadyToFinish)
+    }
+
+    @Test func cancelledLazyAnchorDoesNotKeepTheHistorySpinnerWaitingForOffscreenLayout() {
+        var history = TimelineHistoryPosition(id: 11, layout: layout(), offsetY: 0, topInset: 80)
+        history.cancelRestoration()
+        history.receivedPage(firstRowID: "earlier")
+        #expect(history.isReadyToFinish)
     }
 }

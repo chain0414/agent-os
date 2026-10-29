@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SessionInteractionContent: View {
     let item: SessionNoticeModel
@@ -166,17 +167,36 @@ private struct NoticeTextInput: View {
     @State private var editorID = UUID().uuidString
     @State private var draft = ComposerDraft()
     @State private var editor = ComposerEditorController()
+    @State private var softwareKeyboardVisible = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if draft.text.isEmpty { Text(placeholder).foregroundStyle(.secondary).allowsHitTesting(false) }
-            NativeComposerEditor(draft: draft, controller: editor, maximumHeight: 120,
-                onCommandSend: {}, onTextChange: { text, marked in onChange(text, marked, editorID) })
-                .frame(minHeight: 44)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 4) {
+                NativeComposerEditor(draft: draft, controller: editor, maximumHeight: 120,
+                    onCommandSend: {}, onTextChange: { text, marked in onChange(text, marked, editorID) })
+                    .frame(minHeight: 44)
+                    .fixedSize(horizontal: false, vertical: true)
+                if softwareKeyboardVisible && draft.isFocused {
+                    Button { editor.finishEditing() } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "收起键盘"))
+                    .accessibilityIdentifier("chat.notice.dismissKeyboard")
+                }
+            }
         }
         .font(.body).padding(10).background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
         .onChange(of: draft.isFocused) { _, focused in if focused { onFocus() } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                  let screen = editor.textView?.window?.screen else { return }
+            softwareKeyboardVisible = frame.height > 0 && frame.minY < screen.bounds.height
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            softwareKeyboardVisible = false
+        }
         .onChange(of: value, initial: true) { _, text in
             if !draft.isComposing, draft.text != text { draft.text = text }
         }

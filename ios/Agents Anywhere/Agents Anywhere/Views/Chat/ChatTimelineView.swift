@@ -24,9 +24,12 @@ struct ChatTimelineView: View {
     @State private var nativePhase = TimelineScrollState.Phase.idle
     /// The return pill would sit on top of the keyboard while typing.
     @State private var keyboardIsVisible = false
+    @State private var readingWidth: CGFloat = 0
+    @State private var restoredWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.sidebarDrawerIsTransitioning) private var sidebarIsTransitioning
     @Environment(\.sidebarDrawerObscuresDetail) private var sidebarObscuresDetail
+    @Environment(\.dismissChatKeyboard) private var dismissKeyboard
     @ScaledMetric(relativeTo: .caption) private var returnPillHeight: CGFloat = 32
 #if DEBUG
     private static let drawerLayoutLog = Logger(subsystem: "agents.anywhere", category: "drawer-layout")
@@ -53,9 +56,21 @@ struct ChatTimelineView: View {
                     onTailVisibility: { region, visible in scrolling.tailVisibilityChanged(region, visible: visible) })
                     .equatable()
                     .background { ChatPageScrollEdge() }
+                    .environment(\.timelineReadingWidth, readingWidth)
+                    .environment(\.timelineReadingMeasurement) { id, frame, width, paragraph in
+                        model.session.readingAnchor.measure(id: id, y: frame.minY, height: frame.height,
+                            width: width, isParagraph: paragraph)
+                    }
+                    .environment(\.userMessageDisclosureChanged) { key, collapsed in
+                        scrolling.browseHistory()
+                        historyPosition?.cancelRestoration()
+                        guard collapsed, let target = model.timeline.disclosureTarget(for: key) else { return }
+                        position.scrollTo(id: target, anchor: .top)
+                    }
             }
             .scrollPosition($position)
             .scrollDismissesKeyboard(.interactively)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { readingWidth = $0 }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollEdgeEffectStyle(.soft, for: .top)
@@ -132,6 +147,7 @@ struct ChatTimelineView: View {
                         if latest != latestPull { latestPull = latest }
                         if older != olderPull { olderPull = older }
                     }
+                    captureReadingPosition(value)
                 }
             }
             .onChange(of: navigationIsSuspended, initial: true) { _, suspended in
@@ -155,7 +171,45 @@ struct ChatTimelineView: View {
                 scrolling.setInteractionPresented(presented)
             }
             .onChange(of: model.isOpeningReady, initial: true) { _, ready in
-                if ready { scrolling.open(interactionPresented: hasInteractions) }
+                if ready {
+                    scrolling.open(interactionPresented: hasInteractions)
+                    if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
+                }
+            }
+            .task(id: ReadingRestoration(width: readingWidth, ready: model.isOpeningReady)) {
+                guard model.isOpeningReady, readingWidth > 0 else { return }
+                let width = readingWidth
+                let store = model.session.readingAnchor
+                let anchor = store.anchor
+                let generation = scrolling.navigationGeneration
+                if let anchor {
+                    if store.target(for: anchor, width: width) == nil {
+                        let rowID = anchor.id.components(separatedBy: ":block:")[0]
+                        let groups = TimelineGrouping.groups(model.timeline.rows,
+                            interactionTargets: Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID)))
+                        let target = groups.first { $0.rows.contains { $0.id == rowID } }?.id ?? rowID
+                        position.scrollTo(id: target, anchor: .top)
+                    }
+                    // Content measurements arrive after width/size-class changes.
+                    // A new gesture invalidates the pending correction immediately.
+                    var lastTarget: CGFloat?
+                    for _ in 0..<12 {
+                        do { try await Task.sleep(for: .milliseconds(24)) } catch { return }
+                        guard !Task.isCancelled, scrolling.navigationGeneration == generation else { break }
+                        if let y = store.target(for: anchor, width: width) {
+                            if let lastTarget, abs(y - lastTarget) <= 0.5 { continue }
+                            lastTarget = y
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { position.scrollTo(y: max(-viewport.topInset, y - viewport.topInset)) }
+                        }
+                    }
+                    releaseScrollPosition()
+                }
+                restoredWidth = width
+            }
+            .onChange(of: model.timeline.rows.map(\.id)) { _, ids in
+                model.session.readingAnchor.retain(rowIDs: Set(ids))
             }
             .onChange(of: scrolling.navigationGeneration) { _, _ in
                 releaseScrollPosition()
@@ -220,6 +274,9 @@ struct ChatTimelineView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Background receives only unhandled taps, leaving links, selection and
+        // controls in the foreground with their original gestures.
+        .background { Color.clear.contentShape(Rectangle()).onTapGesture { dismissKeyboard() } }
         .traceChatLayout("timeline-viewport")
         .onDisappear { viewportUpdates.cancel(); historyUpdates.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -235,11 +292,27 @@ struct ChatTimelineView: View {
         olderPull.cancel(); latestPull.cancel()
         scrolling.browseHistory()
         position.isPositionedByUser = true
-        let layout = historyLayout.flatMap { $0.firstRowID == model.timeline.rows.first?.id ? $0 : nil }
+        let interactionTargets = Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID))
+        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: interactionTargets)
+        let layout = model.timeline.rows.first.flatMap { first in
+            model.session.readingAnchor.historyLayout(firstRowID: first.id, groups: groups,
+                top: viewport.offsetY + viewport.topInset, width: readingWidth)
+        }
         historyPosition = TimelineHistoryPosition(id: scrolling.navigationGeneration, layout: layout,
             offsetY: viewport.offsetY, topInset: viewport.topInset)
         hasRequestedOlder = true
         olderLoadRequest = scrolling.navigationGeneration
+    }
+    private func captureReadingPosition(_ value: TimelineViewport) {
+        guard model.isOpeningReady, readingWidth > 0, restoredWidth == readingWidth,
+              abs(value.containerWidth - readingWidth) < 1,
+              !navigationIsSuspended else { return }
+        model.session.readingAnchor.capture(top: value.offsetY + value.topInset, width: readingWidth,
+            following: scrolling.mode != .reading)
+    }
+    private struct ReadingRestoration: Equatable {
+        let width: CGFloat
+        let ready: Bool
     }
     private func loadLatest() {
         guard model.session.isValid, model.session.hasNewerItems,
@@ -319,6 +392,7 @@ struct ChatTimelineView: View {
 }
 
 private struct ChatTimelineContent: View, Equatable {
+    @Environment(\.dismissChatKeyboard) private var dismissKeyboard
     let model: SessionChatModel
     let onAttachment: (V2AttachmentContent) -> Void
     let onFile: (String) -> Void
@@ -351,12 +425,14 @@ private struct ChatTimelineContent: View, Equatable {
             hasPendingUserMessage: !model.session.hasNewerItems && (!model.timeline.pendingMessages.isEmpty || !model.session.pendingMessages.isEmpty))
         // Prefer a message whose start cannot move into a prefixed tool group.
         // For an all-tools page, retain the existing group's trailing edge.
+        let readingRowID = model.session.readingAnchor.anchor.map { String($0.id.components(separatedBy: ":block:")[0]) }
         let anchorGroup = historyAnchor.flatMap { anchor in groups.first { $0.rows.contains { $0.id == anchor.anchorRowID } } }
+            ?? readingRowID.flatMap { id in groups.first { $0.rows.contains { $0.id == id } } }
             ?? groups.first { $0.rows.first?.structure.groupKind == .single } ?? groups.last
         let anchorEdge = historyAnchor?.edge ?? (anchorGroup?.rows.first?.structure.groupKind == .single ? .top : .bottom)
-        // Keep actual row geometry available as Markdown grows and tool groups
-        // change height. Hidden tool details own their deferred work separately.
-        VStack(alignment: .leading, spacing: 20) {
+        // Mount only nearby groups. Session-owned anchors preserve reading
+        // intent while lazy estimates settle after a width or history change.
+        LazyVStack(alignment: .leading, spacing: 20) {
             if model.session.hasOlderItems || keepsOlderPrompt {
                 Group {
                     if isLoadingOlder {
@@ -385,6 +461,7 @@ private struct ChatTimelineContent: View, Equatable {
                     inlineNotices: group.rows.flatMap { noticesByTarget[$0.id] ?? [] })
                     .equatable()
                     .id(group.id)
+                    .modifier(TimelineReadingMeasurement(id: group.id))
                     .background {
                         if group.id == anchorGroup?.id, let firstRowID = model.timeline.rows.first?.id {
                             Color.clear.onGeometryChange(for: TimelineHistoryLayout.self) { geometry in
@@ -425,6 +502,8 @@ private struct ChatTimelineContent: View, Equatable {
                     }
                 } else { Color.clear }
             }.frame(height: 32)
+                .contentShape(Rectangle())
+                .onTapGesture { dismissKeyboard() }
                 .traceChatLayout("tail-spacer")
                 .overlay(alignment: .bottom) {
                     Color.clear.frame(height: 96)
@@ -438,6 +517,7 @@ private struct ChatTimelineContent: View, Equatable {
                 }
                 .id("tail")
         }
+        .scrollTargetLayout()
         .modifier(ChatPageContentColumn(horizontalInset: nil))
         .coordinateSpace(name: "chat.timeline.content")
         .traceChatLayout("timeline-content", state: "groups=\(groups.count), footers=\(actions.count), running=\(model.isRunning)")
@@ -448,7 +528,8 @@ private struct ChatTimelineContent: View, Equatable {
 private extension TimelineViewport {
     init(geometry: ScrollGeometry) {
         self.init(contentHeight: geometry.contentSize.height, containerHeight: geometry.containerSize.height,
-            topInset: geometry.contentInsets.top, bottomInset: geometry.contentInsets.bottom, offsetY: geometry.contentOffset.y)
+            topInset: geometry.contentInsets.top, bottomInset: geometry.contentInsets.bottom, offsetY: geometry.contentOffset.y,
+            containerWidth: geometry.containerSize.width)
     }
 }
 

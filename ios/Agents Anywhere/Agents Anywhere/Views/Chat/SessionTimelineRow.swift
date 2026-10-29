@@ -22,7 +22,9 @@ struct SessionTimelineRow: View, Equatable {
             case let .message(message):
                 let files = chat.session.attachmentPreviews.resolve(message.attachments, clientID: row.value.source["clientMessageId"]?.stringValue)
                 if row.value.role == .user {
-                    UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail)
+                    UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail,
+                        expansion: chat.session.userMessageExpansion,
+                        messageKey: UserMessageExpansionStore.key(itemID: row.id, clientMessageID: row.value.source["clientMessageId"]?.stringValue))
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
                         markdown
@@ -45,6 +47,7 @@ struct SessionTimelineRow: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.chatLayoutTraceOwner, row.id)
         .traceChatLayout("row:\(row.id)", state: "generation=\(row.layoutGeneration), status=\(row.value.status.rawValue)")
         // Long presses belong to the text selection interaction inside the row.
         // A row-wide context menu would intercept them and highlight the item.
@@ -65,6 +68,9 @@ struct UserMessageBubble: View {
     var loadThumbnail: (V2AttachmentContent) async throws -> Data? = { _ in nil }
     var isPending = false
     var onDeliveryIssue: (() -> Void)?
+    var expansion: UserMessageExpansionStore?
+    var messageKey = ""
+    @State private var availableWidth: CGFloat = 300
     @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -74,7 +80,11 @@ struct UserMessageBubble: View {
                     ChatMessageAttachments(files: attachments, onOpen: onAttachment, loadThumbnail: loadThumbnail)
                 }
                 if !text.isEmpty {
-                    ChatSelectableText(text: text).font(.body)
+                    Group {
+                        if let expansion {
+                            UserMessageText(text: text, availableWidth: max(1, availableWidth - 48 - 34 - 8), expansion: expansion, messageKey: messageKey)
+                        } else { ChatSelectableText(text: text).font(.body) }
+                    }
                         .padding(.horizontal, 17).padding(.vertical, 12)
                         .background(colorScheme == .dark ? Color(white: 0.13) : Color(white: 0.94), in: .rect(cornerRadius: 24))
                 }
@@ -92,6 +102,7 @@ struct UserMessageBubble: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     }
 }
 
@@ -105,7 +116,9 @@ struct PendingMessageRow: View {
         UserMessageBubble(text: pending.content,
             attachments: chat.session.attachmentPreviews.resolve(pending.attachments.map(\.content), clientID: pending.id),
             onAttachment: onAttachment, loadThumbnail: chat.thumbnail, isPending: pending.delivery == .sending || pending.delivery == .accepted,
-            onDeliveryIssue: deliveryIssue == nil ? nil : { confirmsDismiss = true })
+            onDeliveryIssue: deliveryIssue == nil ? nil : { confirmsDismiss = true },
+            expansion: chat.session.userMessageExpansion,
+            messageKey: UserMessageExpansionStore.key(itemID: pending.id, clientMessageID: pending.id))
         .confirmationDialog(deliveryIssue ?? "", isPresented: $confirmsDismiss, titleVisibility: .visible) {
             Button(String(localized: "返回编辑")) {
                 if chat.session.isLocalCreation { chat.onEditCreation?(pending) }

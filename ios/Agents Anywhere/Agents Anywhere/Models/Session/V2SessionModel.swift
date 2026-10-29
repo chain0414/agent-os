@@ -92,7 +92,10 @@ final class V2SessionModel: Identifiable {
     private(set) var pendingMessages: [V2PendingMessage] = []
     private(set) var awaitingReplyID: String?
     let composer = ComposerDraft()
+    let userMessageExpansion = UserMessageExpansionStore()
     let attachmentPreviews = ChatAttachmentStore()
+    let readingAnchor = TimelineReadingAnchorStore()
+    let chatTimeline = SessionTimelinePresentation()
     var draft: String {
         get { composer.text }
         set { composer.text = newValue }
@@ -297,6 +300,10 @@ final class V2SessionModel: Identifiable {
         runtime.update(nil, connected: false)
         metadata = nil; timeline = []; rowsByID = [:]; pendingMessages = []; awaitingReplyID = nil; draft = ""; draftAttachmentIDs = []
         composer.invalidate()
+        chatTimeline.presentOpening([], pendingMessages: [])
+        chatTimeline.showsAutomationRecords = false
+        readingAnchor.clear()
+        userMessageExpansion.clear()
         attachmentPreviews.clear()
         notices.clear()
         connection = .inactive; isValid = false; repository = nil

@@ -139,6 +139,7 @@ private struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .traceChatLayout("markdown:\(traceOwner):\(block.id):layout")
+        .modifier(TimelineReadingMeasurement(id: "\(traceOwner):block:\(block.id)", isParagraph: true))
         .task(id: RevealPhase(isStreaming: isStreaming, isTail: isTail)) {
             // Opening static history must not schedule delayed state changes
             // for every paragraph. A live append still settles completed blocks.

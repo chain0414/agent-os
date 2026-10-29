@@ -5,6 +5,26 @@ import Testing
 @testable import ClientCore
 
 @Suite struct SessionPresentationTests {
+    @Test @MainActor func replacingObservationDoesNotLetOldCancellationDisableNewUpdates() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let presentation = SessionTimelinePresentation()
+        let first = Task { await presentation.run(sessionID: "session", repository: repo) }
+        try await Task.sleep(for: .milliseconds(20))
+        let second = Task { await presentation.run(sessionID: "session", repository: repo) }
+        defer { second.cancel() }
+        try await Task.sleep(for: .milliseconds(20))
+        first.cancel()
+        await first.value
+        let value = try item("message", content: ["text": "New subscription remains live"])
+        presentation.stage([value], animate: false)
+        for _ in 0..<30 {
+            if presentation.rows.first?.text == value.displayText { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(presentation.rows.first?.text == value.displayText)
+    }
     private func item(_ type: String = "tool", id: String = "item", status: String = "done", content: [String: Any], source: [String: Any] = [:]) throws -> V2TimelineItem {
         var value = try itemObject(id: id)
         value["type"] = type; value["status"] = status; value["content"] = content; value["source"] = source

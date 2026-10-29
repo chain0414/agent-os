@@ -9,6 +9,9 @@ final class ComposerEditorController {
     @ObservationIgnored weak var draft: ComposerDraft?
 
     func finishEditing() {
+        // Clear the desired focus before UIKit delegate/layout callbacks can
+        // cause SwiftUI to update this editor and request focus again.
+        draft?.isFocused = false
         guard let textView else { return }
         textView.resignFirstResponder()
         synchronize()
@@ -53,6 +56,7 @@ final class ComposerTextView: UITextView {
 }
 
 struct NativeComposerEditor: UIViewRepresentable {
+    @Environment(\.chatKeyboardDismissalRouter) private var keyboardRouter
     @Bindable var draft: ComposerDraft
     let controller: ComposerEditorController
     let maximumHeight: CGFloat
@@ -121,8 +125,14 @@ struct NativeComposerEditor: UIViewRepresentable {
             textView.invalidateIntrinsicContentSize()
         }
         func textViewDidChangeSelection(_ textView: UITextView) { synchronize() }
-        func textViewDidBeginEditing(_ textView: UITextView) { synchronize() }
-        func textViewDidEndEditing(_ textView: UITextView) { synchronize() }
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.keyboardRouter?.activeEditor = parent.controller
+            synchronize()
+        }
+        func textViewDidEndEditing(_ textView: UITextView) {
+            parent.keyboardRouter?.editingEnded(parent.controller)
+            synchronize()
+        }
         private func synchronize() {
             parent.controller.synchronize()
             parent.onTextChange?(parent.draft.text, parent.draft.isComposing)

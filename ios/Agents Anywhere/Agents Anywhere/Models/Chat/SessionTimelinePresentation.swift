@@ -14,10 +14,23 @@ final class ChatTimelineRowModel: Identifiable {
     @ObservationIgnored private var entryCache: (cwd: String?, entry: TimelineEntryPresentation)?
     /// False while a streaming batch withholds the final glyph of the received text.
     @ObservationIgnored private var displaysFullText = false
+    @ObservationIgnored private var showsAutomationRecords = false
+    @ObservationIgnored private(set) var automation: TimelineAutomationPresentation?
+    @ObservationIgnored private var automationContextID: String?
+
+    private var displayedAutomation: TimelineAutomationPresentation? {
+        guard let automation else { return nil }
+        if case .instruction = automation { return automation }
+        return automation.automationID == automationContextID ? automation : nil
+    }
 
     init(_ value: V2TimelineItem, animate: Bool = false) {
         id = value.id; self.value = value
-        structure = TimelineRowStructure(value)
+        let automation = TimelineAutomationPresentation.classify(value)
+        self.automation = automation
+        let instruction: TimelineAutomationPresentation?
+        if case .instruction = automation { instruction = automation } else { instruction = nil }
+        structure = TimelineRowStructure(value, isAutomationHidden: instruction?.isHidden == true)
         text = animate ? "" : value.displayText
     }
 
@@ -27,7 +40,8 @@ final class ChatTimelineRowModel: Identifiable {
         // Unchanged rows neither recompute their structure nor rescan their text.
         if hasFlushed && value == next && (animate || displaysFullText) { settle(now: now); return false }
         hasFlushed = true
-        let received = next.displayText
+        if value != next { automation = TimelineAutomationPresentation.classify(next) }
+        let received = showsAutomationRecords ? next.displayText : displayedAutomation?.notificationText ?? next.displayText
         let appending = received.hasPrefix(text)
         // Snapshots/corrections are authoritative replacements, not token deltas.
         if !appending { layoutGeneration += 1 }
@@ -43,10 +57,24 @@ final class ChatTimelineRowModel: Identifiable {
             text = displayed
         }
         if value != next { value = next; entryCache = nil }
-        let nextStructure = TimelineRowStructure(next)
+        let nextStructure = TimelineRowStructure(next, isAutomationHidden: !showsAutomationRecords && displayedAutomation?.isHidden == true)
         if structure != nextStructure { structure = nextStructure }
         if !animate || now >= settlesAt { isRevealing = false }
         return started
+    }
+
+    func showAutomationRecords(_ show: Bool) {
+        guard showsAutomationRecords != show else { return }
+        showsAutomationRecords = show
+        hasFlushed = false
+        flush(value, animate: false, now: ProcessInfo.processInfo.systemUptime)
+    }
+
+    func associateAutomation(_ id: String?) {
+        guard automationContextID != id else { return }
+        automationContextID = id
+        hasFlushed = false
+        flush(value, animate: false, now: ProcessInfo.processInfo.systemUptime)
     }
 
     /// Tool/marker rows parse their payload once per item version instead of
@@ -74,12 +102,19 @@ final class SessionTimelinePresentation {
     private(set) var rows: [ChatTimelineRowModel] = []
     private(set) var pendingMessages: [V2PendingMessage] = []
     private(set) var hasPresentedSnapshot = false
+    var showsAutomationRecords = false {
+        didSet {
+            guard showsAutomationRecords != oldValue else { return }
+            for row in rows { row.showAutomationRecords(showsAutomationRecords) }
+        }
+    }
     @ObservationIgnored private var rowsByID: [V2TimelineItemID: ChatTimelineRowModel] = [:]
     @ObservationIgnored private var pending: [V2TimelineItem]?
     @ObservationIgnored private var animatePending = false
     @ObservationIgnored private var initialized = false
     @ObservationIgnored private var lastConnection: V2SessionConnectionState = .inactive
     @ObservationIgnored private var wake: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var observationGeneration = 0
     /// When the newest reveal batch ends and the buffer may publish again.
     @ObservationIgnored private(set) var nextBatchAt: TimeInterval = 0
 
@@ -119,11 +154,24 @@ final class SessionTimelinePresentation {
                 let row: ChatTimelineRowModel
                 if let existing { row = existing } else {
                     row = ChatTimelineRowModel(value, animate: animate && value.isAssistantText)
+                    row.showAutomationRecords(showsAutomationRecords)
                     rowsByID[value.id] = row
                 }
                 if row.flush(value, animate: animate, now: now) { started = true }
                 if !orderChanged, rows[index] !== row { orderChanged = true }
                 updated.append(row)
+            }
+            // A page may start in the middle of a turn. Never infer a silent
+            // result without its matching instruction in this loaded window.
+            var instructions: [V2TurnID: Set<String>] = [:]
+            for row in updated {
+                if let turn = row.value.turnId, case let .instruction(id) = row.automation {
+                    instructions[turn, default: []].insert(id)
+                }
+            }
+            for row in updated where row.value.role == .assistant {
+                let ids = row.value.turnId.flatMap { instructions[$0] }
+                row.associateAutomation(ids?.count == 1 ? ids?.first : nil)
             }
             if started { nextBatchAt = now + ReplyPresentation.batchInterval }
             if orderChanged {
@@ -137,10 +185,15 @@ final class SessionTimelinePresentation {
     }
 
     func run(sessionID: V2SessionID, repository: V2SessionRepository) async {
+        observationGeneration += 1
+        let generation = observationGeneration
         let session = repository.session(id: sessionID)
         let signal = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         wake = signal.continuation
-        defer { signal.continuation.finish(); wake = nil }
+        defer {
+            signal.continuation.finish()
+            if observationGeneration == generation { wake = nil }
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 defer { signal.continuation.finish() }
@@ -185,6 +238,14 @@ final class SessionTimelinePresentation {
             !rows.contains { $0.value.role == .user && $0.value.source["clientMessageId"]?.stringValue == message.id }
         }
         if pendingMessages.map(\.id) != visible.map(\.id) { pendingMessages = visible }
+    }
+
+    func disclosureTarget(for key: String) -> String? {
+        if let row = rows.first(where: {
+            UserMessageExpansionStore.key(itemID: $0.id,
+                clientMessageID: $0.value.source["clientMessageId"]?.stringValue) == key
+        }) { return row.id }
+        return pendingMessages.first { "client:\($0.id)" == key }?.id
     }
 }
 

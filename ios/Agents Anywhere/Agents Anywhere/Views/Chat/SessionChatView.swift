@@ -21,6 +21,7 @@ struct SessionChatView: View, Equatable {
     @State private var toasts = ChatToastStore()
     @State private var pendingTakeover: Bool?
     @State private var hasStartedLoading = false
+    @State private var keyboardRouter = ChatKeyboardDismissalRouter()
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var takeoverPillHeight: CGFloat = 32
@@ -105,6 +106,11 @@ struct SessionChatView: View, Equatable {
                     }.padding(.top, 8)
                 }
         }
+        .environment(\.chatKeyboardDismissalRouter, keyboardRouter)
+        .environment(\.dismissChatKeyboard) {
+            keyboardRouter.dismiss()
+            session.composer.isFocused = false
+        }
         .modifier(ChatPageToolbar(title: session.metadata?.title ?? String(localized: "会话"),
             subtitle: [session.metadata?.runtimeName ?? session.metadata?.runtime ?? String(localized: "Agent"),
                 deviceName ?? session.metadata?.connectorId].compactMap { $0 }.joined(separator: " · "),
@@ -116,6 +122,9 @@ struct SessionChatView: View, Equatable {
                     .disabled(session.metadata?.cwd?.isEmpty != false)
                 Menu {
                     Button(String(localized: "会话详情与导出"), systemImage: "info.circle") { sheet = .details }
+                    Toggle(String(localized: "显示自动化记录"), isOn: Binding(
+                        get: { model.timeline.showsAutomationRecords },
+                        set: { model.timeline.showsAutomationRecords = $0 }))
                     Button(String(localized: "复制会话 ID"), systemImage: "number") { UIPasteboard.general.string = session.id }
                 } label: { AppSymbol("ellipsis") }
                 .accessibilityLabel(String(localized: "会话菜单"))
