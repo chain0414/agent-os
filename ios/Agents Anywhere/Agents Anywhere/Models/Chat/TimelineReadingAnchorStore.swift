@@ -82,7 +82,32 @@ import Foundation
     func retain(rowIDs: Set<String>) {
         measurements = measurements.filter { key, _ in
             rowIDs.contains(key) || rowIDs.contains(String(key.components(separatedBy: ":block:")[0]))
+                || key.hasSuffix(":message-tail") && rowIDs.contains(String(key.dropLast(":message-tail".count)))
         }
         if let anchor, measurements[anchor.id] == nil { self.anchor = nil }
+    }
+
+    func historyLayout(firstRowID: String, entries: [TimelineRenderEntry], top: CGFloat,
+                       width: CGFloat) -> TimelineHistoryLayout? {
+        guard top.isFinite, width.isFinite, width > 0 else { return nil }
+        let measured = entries.compactMap { entry -> (TimelineRenderEntry, Measurement)? in
+            guard let frame = measurements[entry.id], abs(frame.width - width) < 1 else { return nil }
+            return (entry, frame)
+        }
+        let containing = measured.filter { $0.1.y <= top && $0.1.y + $0.1.height > top }
+        let candidate = containing.first { $0.0.id == anchor?.id }
+            ?? containing.min { $0.1.height < $1.1.height }
+            ?? measured.min { lhs, rhs in
+                max(lhs.1.y - top, top - lhs.1.y - lhs.1.height, 0)
+                    < max(rhs.1.y - top, top - rhs.1.y - rhs.1.height, 0)
+            }
+        guard let (entry, frame) = candidate else { return nil }
+        let edge: TimelineHistoryLayout.Edge
+        let target: String
+        if case .group = entry.content, entry.group.rows.first?.structure.groupKind != .single {
+            edge = .bottom; target = entry.group.rows.last?.id ?? entry.id
+        } else { edge = .top; target = entry.id }
+        return TimelineHistoryLayout(firstRowID: firstRowID, anchorRowID: target,
+            edge: edge, y: edge == .top ? frame.y : frame.y + frame.height)
     }
 }

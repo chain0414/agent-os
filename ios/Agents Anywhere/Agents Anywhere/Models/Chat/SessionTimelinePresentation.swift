@@ -9,6 +9,8 @@ final class ChatTimelineRowModel: Identifiable {
     private(set) var text: String
     private(set) var isRevealing = false
     private(set) var layoutGeneration = 0
+    private(set) var usesBlockTimeline = false
+    let markdown = TimelineMarkdownPresentation()
     @ObservationIgnored private(set) var settlesAt: TimeInterval = 0
     @ObservationIgnored private var hasFlushed = false
     @ObservationIgnored private var entryCache: (cwd: String?, entry: TimelineEntryPresentation)?
@@ -32,6 +34,7 @@ final class ChatTimelineRowModel: Identifiable {
         if case .instruction = automation { instruction = automation } else { instruction = nil }
         structure = TimelineRowStructure(value, isAutomationHidden: instruction?.isHidden == true)
         text = animate ? "" : value.displayText
+        usesBlockTimeline = Self.needsBlockTimeline(value, text: text)
     }
 
     /// Returns true when newly displayed text starts a reveal batch.
@@ -44,7 +47,7 @@ final class ChatTimelineRowModel: Identifiable {
         let received = showsAutomationRecords ? next.displayText : displayedAutomation?.notificationText ?? next.displayText
         let appending = received.hasPrefix(text)
         // Snapshots/corrections are authoritative replacements, not token deltas.
-        if !appending { layoutGeneration += 1 }
+        if !appending { layoutGeneration += 1; markdown.reset() }
         let safeText = animate && appending && next.isStreamingText && !received.isEmpty
             ? String(received.dropLast()) : received
         let displayed = safeText.hasPrefix(text) || !appending ? safeText : received
@@ -56,11 +59,17 @@ final class ChatTimelineRowModel: Identifiable {
             if isRevealing { settlesAt = now + ReplyPresentation.revealSeconds + ReplyPresentation.drawSlack }
             text = displayed
         }
+        let nextUsesBlockTimeline = Self.needsBlockTimeline(next, text: displayed)
+        if usesBlockTimeline != nextUsesBlockTimeline { usesBlockTimeline = nextUsesBlockTimeline }
         if value != next { value = next; entryCache = nil }
         let nextStructure = TimelineRowStructure(next, isAutomationHidden: !showsAutomationRecords && displayedAutomation?.isHidden == true)
         if structure != nextStructure { structure = nextStructure }
         if !animate || now >= settlesAt { isRevealing = false }
         return started
+    }
+
+    private static func needsBlockTimeline(_ item: V2TimelineItem, text: String) -> Bool {
+        item.type == .message && item.role == .assistant && text.utf8.count >= 16_000
     }
 
     func showAutomationRecords(_ show: Bool) {

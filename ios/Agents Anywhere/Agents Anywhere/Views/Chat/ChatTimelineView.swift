@@ -187,7 +187,9 @@ struct ChatTimelineView: View {
                         let rowID = anchor.id.components(separatedBy: ":block:")[0]
                         let groups = TimelineGrouping.groups(model.timeline.rows,
                             interactionTargets: Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID)))
-                        let target = groups.first { $0.rows.contains { $0.id == rowID } }?.id ?? rowID
+                        let entries = TimelineRenderEntry.build(groups: groups)
+                        let target = entries.contains { $0.id == anchor.id } ? anchor.id
+                            : entries.first { $0.group.rows.contains { $0.id == rowID } }?.id ?? rowID
                         position.scrollTo(id: target, anchor: .top)
                     }
                     // Content measurements arrive after width/size-class changes.
@@ -295,7 +297,7 @@ struct ChatTimelineView: View {
         let interactionTargets = Set(model.session.notices.notices.filter(\.isVisible).compactMap(\.timelineTargetID))
         let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: interactionTargets)
         let layout = model.timeline.rows.first.flatMap { first in
-            model.session.readingAnchor.historyLayout(firstRowID: first.id, groups: groups,
+            model.session.readingAnchor.historyLayout(firstRowID: first.id, entries: TimelineRenderEntry.build(groups: groups),
                 top: viewport.offsetY + viewport.topInset, width: readingWidth)
         }
         historyPosition = TimelineHistoryPosition(id: scrolling.navigationGeneration, layout: layout,
@@ -425,97 +427,54 @@ private struct ChatTimelineContent: View, Equatable {
             hasPendingUserMessage: !model.session.hasNewerItems && (!model.timeline.pendingMessages.isEmpty || !model.session.pendingMessages.isEmpty))
         // Prefer a message whose start cannot move into a prefixed tool group.
         // For an all-tools page, retain the existing group's trailing edge.
-        let readingRowID = model.session.readingAnchor.anchor.map { String($0.id.components(separatedBy: ":block:")[0]) }
-        let anchorGroup = historyAnchor.flatMap { anchor in groups.first { $0.rows.contains { $0.id == anchor.anchorRowID } } }
-            ?? readingRowID.flatMap { id in groups.first { $0.rows.contains { $0.id == id } } }
-            ?? groups.first { $0.rows.first?.structure.groupKind == .single } ?? groups.last
-        let anchorEdge = historyAnchor?.edge ?? (anchorGroup?.rows.first?.structure.groupKind == .single ? .top : .bottom)
-        // Mount only nearby groups. Session-owned anchors preserve reading
-        // intent while lazy estimates settle after a width or history change.
-        LazyVStack(alignment: .leading, spacing: 20) {
-            if model.session.hasOlderItems || keepsOlderPrompt {
-                Group {
-                    if isLoadingOlder {
-                        HStack(spacing: 8) {
-                            ProgressView().progressViewStyle(.circular).controlSize(.small)
-                            Text(String(localized: "正在加载较早的消息…"))
-                        }.accessibilityElement(children: .combine)
-                    } else if model.session.hasOlderItems {
-                        Button(action: onLoadOlder) {
-                            Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .contentShape(Rectangle())
-                        }.disabled(model.session.isLoadingHistory || isLoadingLatest)
-                    } else {
-                        // Retain the prompt's footprint on the final page; removing
-                        // it after restoring would move the reader by another row.
-                        Text(String(localized: "已到达会话开头")).foregroundStyle(.secondary)
-                    }
-                }
-                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
-                .onScrollVisibilityChange(threshold: 0.9) { onOlderPromptVisibility($0) }
-            }
-            ForEach(groups) { group in
-                SessionTimelineGroupView(group: group, chat: model, onAttachment: onAttachment, onFile: onFile,
-                    turnAction: actions[group.id],
-                    inlineNotices: group.rows.flatMap { noticesByTarget[$0.id] ?? [] })
-                    .equatable()
-                    .id(group.id)
-                    .modifier(TimelineReadingMeasurement(id: group.id))
+        let entries = TimelineRenderEntry.build(groups: groups)
+        let preparations = groups.compactMap { group -> ChatMarkdownView.Preparation? in
+            guard group.kind == .single, group.rows.count == 1,
+                  let row = group.rows.first, row.usesBlockTimeline else { return nil }
+            return ChatMarkdownView.Preparation(row)
+        }
+        let anchorEntry = readingEntry(in: entries)
+        let anchorEdge: TimelineHistoryLayout.Edge = historyAnchor?.edge
+            ?? (anchorEntry?.group.rows.first?.structure.groupKind == .single ? .top : .bottom)
+        LazyVStack(alignment: .leading, spacing: 0) {
+            if model.session.hasOlderItems || keepsOlderPrompt { olderPrompt }
+            ForEach(entries) { entry in
+                TimelineEntryView(entry: entry, model: model, onAttachment: onAttachment, onFile: onFile,
+                    turnAction: actions[entry.group.id],
+                    inlineNotices: entry.group.rows.flatMap { noticesByTarget[$0.id] ?? [] })
+                    .id(entry.id)
+                    .modifier(TimelineReadingMeasurement(id: entry.id, isParagraph: entry.isParagraph))
                     .background {
-                        if group.id == anchorGroup?.id, let firstRowID = model.timeline.rows.first?.id {
+                        if entry.id == anchorEntry?.id, let firstRowID = model.timeline.rows.first?.id {
                             Color.clear.onGeometryChange(for: TimelineHistoryLayout.self) { geometry in
                                 let frame = geometry.frame(in: .named("chat.timeline.content"))
                                 return TimelineHistoryLayout(firstRowID: firstRowID,
-                                    anchorRowID: historyAnchor?.anchorRowID ?? group.id, edge: anchorEdge,
+                                    anchorRowID: historyAnchor?.anchorRowID ?? entry.id, edge: anchorEdge,
                                     y: anchorEdge == .top ? frame.minY : frame.maxY)
                             } action: { onHistoryLayout($0) }
                         }
                     }
+                    .padding(.bottom, entry.isParagraph ? 12 : 20)
             }
             ForEach(visibleNotices.filter { notice in
                 notice.timelineTargetID.map { !rowIDs.contains($0) } ?? true
-            }) { item in SessionInteractionCard(item: item, chat: model) }
+            }) { item in SessionInteractionCard(item: item, chat: model).padding(.bottom, 20) }
             ForEach(model.timeline.pendingMessages) { pending in
                 PendingMessageRow(pending: pending, chat: model, onAttachment: onAttachment,
                     onDismiss: { model.session.dismissPendingMessage(id: pending.id) })
                     .id(pending.id)
+                    .padding(.bottom, 20)
             }
-            if model.session.hasNewerItems {
-                Button(action: onLoadLatest) {
-                    Group {
-                        if isLoadingLatest { ProgressView(String(localized: "正在加载更新的记录…")) }
-                        else { Text(latestPullReady ? String(localized: "松开加载更新的记录") : String(localized: "继续上拉加载更新的记录")) }
-                    }.font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .disabled(model.session.isLoadingHistory || isLoadingLatest || isLoadingOlder)
-                .onScrollVisibilityChange { onPromptVisibility($0) }
+            if model.session.hasNewerItems { newerPrompt }
+            timelineTail
+        }
+        .task(id: preparations) {
+            // Prefer the latest reply and bound parser work even in a history
+            // window containing many long messages.
+            for preparation in preparations.reversed() {
+                guard !Task.isCancelled else { return }
+                await ChatMarkdownView.prepare(preparation)
             }
-            // Constant breathing room: status text and card counts cannot
-            // change this spacer or create a spurious follow request.
-            Group {
-                if let text = model.sendingPlaceholder {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                } else { Color.clear }
-            }.frame(height: 32)
-                .contentShape(Rectangle())
-                .onTapGesture { dismissKeyboard() }
-                .traceChatLayout("tail-spacer")
-                .overlay(alignment: .bottom) {
-                    Color.clear.frame(height: 96)
-                        .onScrollVisibilityChange(threshold: 0.01) { onTailVisibility(.near, $0) }
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .overlay(alignment: .bottom) {
-                    Color.clear.frame(height: 2)
-                        .onScrollVisibilityChange(threshold: 0.5) { onTailVisibility(.end, $0) }
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .id("tail")
         }
         .scrollTargetLayout()
         .modifier(ChatPageContentColumn(horizontalInset: nil))
@@ -523,6 +482,110 @@ private struct ChatTimelineContent: View, Equatable {
         .traceChatLayout("timeline-content", state: "groups=\(groups.count), footers=\(actions.count), running=\(model.isRunning)")
     }
 
+    private func readingEntry(in entries: [TimelineRenderEntry]) -> TimelineRenderEntry? {
+        if let anchor = historyAnchor {
+            if let exact = entries.first(where: { $0.id == anchor.anchorRowID }) { return exact }
+            if let group = entries.first(where: { $0.group.rows.contains { $0.id == anchor.anchorRowID } }) { return group }
+        }
+        if let id = model.session.readingAnchor.anchor?.id {
+            if let exact = entries.first(where: { $0.id == id }) { return exact }
+            let rowID = String(id.components(separatedBy: ":block:")[0])
+            if let group = entries.first(where: { $0.group.rows.contains { $0.id == rowID } }) { return group }
+        }
+        return entries.first { $0.group.rows.first?.structure.groupKind == .single } ?? entries.last
+    }
+
+    private var olderPrompt: some View {
+        Group {
+            if isLoadingOlder {
+                HStack(spacing: 8) {
+                    ProgressView().progressViewStyle(.circular).controlSize(.small)
+                    Text(String(localized: "正在加载较早的消息…"))
+                }.accessibilityElement(children: .combine)
+            } else if model.session.hasOlderItems {
+                Button(action: onLoadOlder) {
+                    Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }.disabled(model.session.isLoadingHistory || isLoadingLatest)
+            } else {
+                // Retain the prompt's footprint on the final page; removing
+                // it after restoring would move the reader by another row.
+                Text(String(localized: "已到达会话开头")).foregroundStyle(.secondary)
+            }
+        }
+        .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+        .onScrollVisibilityChange(threshold: 0.9) { onOlderPromptVisibility($0) }
+        .padding(.bottom, 20)
+    }
+
+    private var newerPrompt: some View {
+        Button(action: onLoadLatest) {
+            Group {
+                if isLoadingLatest { ProgressView(String(localized: "正在加载更新的记录…")) }
+                else { Text(latestPullReady ? String(localized: "松开加载更新的记录") : String(localized: "继续上拉加载更新的记录")) }
+            }.font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .disabled(model.session.isLoadingHistory || isLoadingLatest || isLoadingOlder)
+        .onScrollVisibilityChange { onPromptVisibility($0) }
+        .padding(.bottom, 20)
+    }
+
+    private var timelineTail: some View {
+        // Constant breathing room: status text and card counts cannot
+        // change this spacer or create a spurious follow request.
+        Group {
+            if let text = model.sendingPlaceholder {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            } else { Color.clear }
+        }.frame(height: 32)
+            .contentShape(Rectangle())
+            .onTapGesture { dismissKeyboard() }
+            .traceChatLayout("tail-spacer")
+            .overlay(alignment: .bottom) {
+                Color.clear.frame(height: 96)
+                    .onScrollVisibilityChange(threshold: 0.01) { onTailVisibility(.near, $0) }
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .overlay(alignment: .bottom) {
+                Color.clear.frame(height: 2)
+                    .onScrollVisibilityChange(threshold: 0.5) { onTailVisibility(.end, $0) }
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .id("tail")
+    }
+
+}
+
+private struct TimelineEntryView: View {
+    let entry: TimelineRenderEntry
+    let model: SessionChatModel
+    let onAttachment: (V2AttachmentContent) -> Void
+    let onFile: (String) -> Void
+    let turnAction: TimelineTurnAction?
+    let inlineNotices: [SessionNoticeModel]
+
+    var body: some View {
+        switch entry.content {
+        case let .markdown(block):
+            if let row = entry.group.rows.first {
+                MarkdownBlockView(block: block, isStreaming: row.isRevealing,
+                    isTail: block.id == row.markdown.blocks.last?.id,
+                    revealDeadline: row.markdown.deadlines[block.id] ?? .distantPast)
+                    .equatable()
+                    .environment(\.chatLayoutTraceOwner, row.id)
+            }
+        case .group, .messageTail:
+            SessionTimelineGroupView(group: entry.group, chat: model,
+                onAttachment: onAttachment, onFile: onFile, turnAction: turnAction,
+                inlineNotices: inlineNotices, omitsAssistantText: entry.group.rows.first?.usesBlockTimeline == true)
+                .equatable()
+        }
+    }
 }
 
 private extension TimelineViewport {

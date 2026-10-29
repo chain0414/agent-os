@@ -12,6 +12,12 @@ Semantic error and availability colors remain separate from the primary color.
 
 ## Composer and timeline
 
+- 用户输入默认预览 8 行，可展开到 24 行或全文并收起；附件独立显示，隐藏后缀不进入选区，全文可单独复制。展开等级由会话保存，pending 回显沿用同一 client ID。
+- 输入区与审批输入区提供系统键盘收起按钮；空白点击通过会话局部的当前编辑器路由结束编辑，保留草稿／附件。消息滚动区保留交互式下拉收起，Return 仍换行。
+- 已确认的自动化指令和静默回执默认隐藏，通知正文继续显示；「显示自动化记录」恢复原文。孤立、冲突、未知、损坏、运行中或失败的控制包保留，审批目标不隐藏；原始导出不变。
+- 时间线使用单一根级懒加载布局。assistant 正文达到 16,000 UTF-8 bytes 后，完整 Markdown 结构块成为直接条目，复用后台增量解析；附件／错误／通知／操作只保留一次。单个巨大段落、列表或代码块仍整体布局，并非任意文本的逐行虚拟化。
+- 展示模型、长回复解析缓存与段落阅读锚点随会话保留；旋转使用段落 ID 与段内相对位置恢复。实测与未覆盖范围见[本轮验收记录](../docs/performance/ios-conversation-2026-10-29.md)。
+
 - The empty, unfocused composer is a pill with the same 48-point base height as
   the header controls and 32-point horizontal insets (eight points narrower on
   each side than before). Focus, any text (including whitespace), or attachments
@@ -74,9 +80,11 @@ Semantic error and availability colors remain separate from the primary color.
   parent updates from constructing and discarding another chat model. Cached
   preparation still reads the repository without requesting history again.
   A sidebar gesture after loading starts does not restart the connection.
-  Opening retains only the latest 100 timeline records, including cached visits.
+  A fresh opening retains the latest 100 timeline records, including cached visits.
   Older records are loaded explicitly in 100-record pages and accumulate during
-  that visit. Reopening trims the window again and preserves the older-history
+  that visit. Reopening while following the bottom trims the window again; a
+  compact/split layout replacement while reading preserves the loaded window and
+  its paragraph anchor. Trimming preserves the older-history
   flag; recovery updates cannot reinsert rows before its pagination boundary.
   Opening reveals the window when the initial projection is
   ready, and animates to the native bottom edge. It never pages backward to

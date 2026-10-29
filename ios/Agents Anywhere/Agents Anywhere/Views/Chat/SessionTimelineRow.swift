@@ -8,12 +8,14 @@ struct SessionTimelineRow: View, Equatable {
     var cwd: String?
     let disclosures: TimelineDisclosureState
     let onFile: (String) -> Void
+    var omitsAssistantText = false
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     /// Observation still re-evaluates this row when its own model changes; the
     /// comparison only stops sibling invalidations from reaching every row.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row === rhs.row && lhs.chat === rhs.chat && lhs.cwd == rhs.cwd && lhs.disclosures === rhs.disclosures
+            && lhs.omitsAssistantText == rhs.omitsAssistantText
     }
 
     var body: some View {
@@ -27,7 +29,7 @@ struct SessionTimelineRow: View, Equatable {
                         messageKey: UserMessageExpansionStore.key(itemID: row.id, clientMessageID: row.value.source["clientMessageId"]?.stringValue))
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        markdown
+                        if !omitsAssistantText { markdown }
                         if !files.isEmpty {
                             ChatMessageAttachments(files: files, onOpen: onAttachment, loadThumbnail: chat.thumbnail, alignment: .leading)
                         }
