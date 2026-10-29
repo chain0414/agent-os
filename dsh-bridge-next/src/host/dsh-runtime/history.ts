@@ -8,7 +8,7 @@ import { enrichToolResult, parentToolItem, resultContent, toolContent } from './
 import { json, record, wellFormedJson, type Data, type ItemStatus, type ItemType, type TimelineItem } from './types.js'
 
 // Bump when replay semantics change so old checkpoints rebuild their timeline.
-export const PROJECTION_VERSION = 4
+export const PROJECTION_VERSION = 5
 
 // Older persisted logs and fixtures can still carry the pre-rc.1 chunk vocabulary.
 type LegacyChunk = { type: 'assistant/chunk', seq: SessionEvent['seq'], time: number,
@@ -182,11 +182,19 @@ export function createProjection(externalId: string, platformId: string, fingerp
       steps.set(stepKey, Number(event.seq))
     } else if (event.type === 'user/message') {
       const message = event.data
-      if (message.source.kind !== 'user') return
-      const rpcId = record(message.source).rpcId
-      const clientId = (typeof rpcId === 'string' ? clientMessageId(externalId, rpcId) : undefined) ?? clientMessageId(externalId, message.id)
+      const isUser = message.source.kind === 'user'
+      // Producer kinds are merge-extensible. Only the native schedule producer
+      // is an automation input here; runtime prompts and unknown sources stay out.
+      const isSchedule = record(message.source).kind === 'schedule'
+      if (!isUser && !isSchedule) return
+      const automation: Data | undefined = isSchedule ? { kind: 'schedule',
+        ...(Number.isFinite(event.time) && event.time >= 0 ? { timestampMs: event.time } : {}) } : undefined
+      const rpcId = isUser ? record(message.source).rpcId : undefined
+      const clientId = isUser
+        ? (typeof rpcId === 'string' ? clientMessageId(externalId, rpcId) : undefined) ?? clientMessageId(externalId, message.id)
+        : undefined
       const role = 'user'
-      if (receipt?.platformId === platformId && receipt.attachments.length) {
+      if (isUser && receipt?.platformId === platformId && receipt.attachments.length) {
         const item = put('message', `${message.id}:0`, event, 'message', 'done', role, {
           kind: 'markdown', format: 'markdown',
           text: message.content.filter(value => value.type === 'text').map(value => value.text).join('\n'),
@@ -197,8 +205,11 @@ export function createProjection(externalId: string, platformId: string, fingerp
       }
       message.content.forEach((value, i) => {
         const item = block(value, message.id, i, event, role, 'done')
-        if (item) item.source = { ...item.source, messageSource: json(message.source),
-          ...(clientId ? { clientMessageId: clientId } : {}) }
+        if (item) {
+          item.source = { ...item.source, messageSource: json(message.source),
+            ...(clientId ? { clientMessageId: clientId } : {}) }
+          if (automation) item.content = { ...item.content, automation }
+        }
       })
     } else if (event.type === 'assistant/chunk') {
       const key = `${turnStart}:${steps.get(stepKey) ?? stepKey}`
