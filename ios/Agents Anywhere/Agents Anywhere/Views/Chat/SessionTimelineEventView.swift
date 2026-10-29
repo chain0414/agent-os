@@ -37,7 +37,8 @@ struct SessionTimelineGroupView: View, Equatable {
         else {
             TimelineFold(id: "group:\(group.id)", title: group.title,
                 symbol: group.kind == .reconnect ? "wifi.slash" : agentGroup ? "person.2" : "hammer",
-                status: group.status, disclosures: chat.disclosures) {
+                status: group.status, disclosures: chat.disclosures,
+                executionSummary: group.kind != .reconnect) {
                 rows
             }
         }
@@ -192,13 +193,29 @@ private struct TimelineFold<Content: View>: View {
     let symbol: String
     let status: V2TimelineItemStatus
     let disclosures: TimelineDisclosureState
+    var executionSummary = false
     @ViewBuilder var content: () -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { disclosures.toggle(id) }
-            } label: { TimelineMarkerRow(title: title, symbol: symbol, status: status, expanded: disclosures.isExpanded(id)) }
+            } label: {
+                if executionSummary {
+                    HStack(spacing: 6) {
+                        Text(title).font(.subheadline)
+                            .modifier(TimelineMarkerShimmer(active: status.isActive))
+                        AppSymbol(disclosures.isExpanded(id) ? "chevron.up" : "chevron.down", size: 11)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(status.isFailure ? Color.red : .secondary)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("chat.execution.summary")
+                } else {
+                    TimelineMarkerRow(title: title, symbol: symbol, status: status, expanded: disclosures.isExpanded(id))
+                }
+            }
             .buttonStyle(.plain).accessibilityValue(disclosures.isExpanded(id) ? String(localized: "已展开") : String(localized: "已折叠"))
             if disclosures.isExpanded(id) { content().transition(.identity) }
         }

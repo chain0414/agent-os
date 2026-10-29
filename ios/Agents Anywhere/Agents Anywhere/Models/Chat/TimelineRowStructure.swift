@@ -14,9 +14,11 @@ struct TimelineRowStructure: Equatable {
     let reconnectAttempt: String?
     let isAutomationHidden: Bool
     let turnID: V2TurnID?
+    let executionTiming: TimelineExecutionTiming?
 
     init(_ item: V2TimelineItem, isAutomationHidden: Bool = false) {
         self.isAutomationHidden = isAutomationHidden
+        executionTiming = TimelineExecutionTiming(item)
         turnID = item.turnId
         type = item.type; role = item.role; status = item.status
         startsTurn = item.startsVisibleTurn; isFileChange = item.isFileChange
