@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### iOS
+
+- 新会话和已有会话支持点按麦克风将语音转成文字，检查修改后再发送；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)）
+
 ### 会话创建与消息交付
 
 - 修复接入 Codex 已有会话后，补入的旧消息出现在最新消息下方、历史消息交错或重排后顺序没有更新的问题；升级后同步会自动校准已有记录。（[#480](https://github.com/anywhere-labs/Agents-Anywhere/pull/480)）
