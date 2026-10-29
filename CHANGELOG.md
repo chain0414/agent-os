@@ -17,7 +17,7 @@
 
 ### 会话创建与消息交付
 
-- DSH 原生定时任务的指令不再被同步器丢弃，并保留原生触发时间；其他内部注入来源继续过滤。（[da1093f9](https://github.com/anywhere-labs/Agents-Anywhere/commit/da1093f9)）
+- DSH 原生定时任务的指令不再被同步器丢弃，并保留原生触发时间；Connector 支持接收新版插件补传的任务与耗时，其他内部注入来源继续过滤。（[da1093f9](https://github.com/anywhere-labs/Agents-Anywhere/commit/da1093f9)、[7dc87edc](https://github.com/anywhere-labs/Agents-Anywhere/commit/7dc87edc)）
 - 在 Codex 中有明确回答记录的异步问卷，会在读取待处理事项时重新核对并移除旧请求，减少已处理卡片残留。（[47dc6922](https://github.com/anywhere-labs/Agents-Anywhere/commit/47dc6922)）
 - Connector 上报的时间线条目序号超出范围时只拒绝这条上报，同批其他消息照常保存，不再让整个会话之后的消息都存不进数据库；升级前已经积压的条目会按原顺序排到时间线末尾保存，持续写入失败的会话也不再每秒重试刷屏日志。（[#464](https://github.com/anywhere-labs/Agents-Anywhere/pull/464)）
 
