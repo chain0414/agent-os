@@ -205,7 +205,8 @@ private struct TimelineFold<Content: View>: View {
                     HStack(spacing: 6) {
                         Text(title).font(.subheadline)
                             .modifier(TimelineMarkerShimmer(active: status.isActive))
-                        AppSymbol(disclosures.isExpanded(id) ? "chevron.up" : "chevron.down", size: 11)
+                        AppSymbol("chevron.down", size: 11)
+                            .rotationEffect(.degrees(disclosures.isExpanded(id) ? 180 : 0))
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(status.isFailure ? Color.red : .secondary)
