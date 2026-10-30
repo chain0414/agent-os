@@ -6,6 +6,11 @@ import time
 
 import httpx
 import pytest
+from fakeredis import FakeServer
+from fakeredis.aioredis import FakeRedis
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from agent_server.api import speech
 from agent_server.core.auth import create_user_access_token
 from agent_server.core.models import UserView
@@ -15,10 +20,6 @@ from agent_server.infra.aliyun_speech import AliyunSpeechGateway
 from agent_server.infra.redis_coordinator import RedisCoordinator
 from agent_server.infra.speech_rate_limit import SpeechRateLimiter
 from agent_server.services.speech import SpeechCredentialsService
-from fakeredis import FakeServer
-from fakeredis.aioredis import FakeRedis
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 PERMANENT_KEY = "synthetic-permanent-key"
 TEMPORARY_KEY = "synthetic-temporary-key"
