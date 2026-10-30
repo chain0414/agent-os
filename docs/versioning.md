@@ -69,3 +69,7 @@ Agents Anywhere 的产品版本使用 `MAJOR.MINOR.PATCH`，三段各有明确�
 Desktop 构建时（`yarn build:main`）会把 `server/pyproject.toml` 中的版本记录到 `build-info.json`，作为这个 Desktop 对应的 Server 版本。运行时，如果 Server `/health` 返回的版本**大于**这个记录值，就提示有新的 Desktop 可以更新；Desktop 自身的版本号不参与比较。
 
 因此，发布 Desktop 前要确认 `server/pyproject.toml` 已经是最新版本。Server 升级后，只有在发布了基于新 Server 版本构建的 Desktop 之后，旧 Desktop 才应该收到更新提示。
+
+## 独立协作扩展的版本范围
+
+`agent-collab/` 是同仓维护、独立安装的扩展，使用自身 SemVer（初始 `0.1.0`），不属于上表中需要对齐 `MAJOR.MINOR` 的AA产品各端。协作服务、DSH入口与Codex入口记录明确的兼容范围；其私有协议在 `agent-collab/contracts/` 独立演进。此例外不允许改变既有AA `/api/v2`、Runtime或根契约后只升级扩展版本；实际AA集成变化仍遵守本文的MINOR/MAJOR规则。

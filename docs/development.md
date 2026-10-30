@@ -124,3 +124,7 @@ yarn dist:win   # 在 Windows 构建 x64 NSIS 安装包
 ```
 
 签名、公证、架构选择及缓存重试见 [Desktop Packaging](../desktop-workbench/README.md#packaging)。凭据从环境或安全存储注入，不能提交到源码或文档。Android 的命令和签名边界见 [Android README](../android/README.md)。发布步骤见 [2.0.0 发布说明](releases/2.0.0.md)。
+
+## 独立 Agent 协作扩展
+
+在 `agent-collab/` 单独安装与运行检查，见[组件说明](../agent-collab/README.md)。仅测试本机服务无需AA账号、Server、Connector或数据库；原生宿主能力探针和真实模型验收分别记录。服务、DSH插件和Codex入口分别打包，隔离安装测试不引用源码checkout。

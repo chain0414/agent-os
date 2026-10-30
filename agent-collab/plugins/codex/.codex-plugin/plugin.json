@@ -1,0 +1,6 @@
+{
+  "name":"agent-collab",
+  "version":"0.1.0",
+  "description":"检查 Codex 与 DSH 协作接入状态；真实委派尚未启用",
+  "skills":"./skills"
+}
