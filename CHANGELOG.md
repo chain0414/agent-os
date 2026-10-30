@@ -10,7 +10,7 @@
 
 ### iOS
 
-- 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说，转成文字后检查发送；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)、[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)）
+- 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；录音中麦克风点亮呼吸，可直接发送并等待最终文字，也可先结束录音再修改；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)、[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)、[a4f47f13](https://github.com/anywhere-labs/Agents-Anywhere/commit/a4f47f13)）
 
 ### 会话创建与消息交付
 
