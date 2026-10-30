@@ -10,7 +10,7 @@
 
 ### iOS
 
-- 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；录音中麦克风点亮呼吸，可直接发送并等待最终文字，也可先结束录音再修改；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)、[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)、[a4f47f13](https://github.com/anywhere-labs/Agents-Anywhere/commit/a4f47f13)）
+- 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；麦克风以点亮和同色外扩圆环表示语音处理中，无额外录音提示文字，可直接发送并等待最终文字，也可先结束录音再修改。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)、[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)、[a4f47f13](https://github.com/anywhere-labs/Agents-Anywhere/commit/a4f47f13)、[4750957b](https://github.com/anywhere-labs/Agents-Anywhere/commit/4750957b)）
 
 - 会话标题与副标题在滚动停稳 1.5 秒后向上收起，滚动时向下展开；顶部渐变模糊在收放过程中隔开标题与正文，导航按钮保持可用，正文位置不随显隐跳动。（[0730641b](https://github.com/anywhere-labs/Agents-Anywhere/commit/0730641b)、[82602971](https://github.com/anywhere-labs/Agents-Anywhere/commit/82602971)、[21d75ba3](https://github.com/anywhere-labs/Agents-Anywhere/commit/21d75ba3)）
 - 当前输入请求共用一张带序号的卡片，可直接填写、左右切换并保留草稿；圆角边缘显示正常，横屏可展开填写，回答被接受后及时收起，历史非阻塞问卷仍可从「交互与通知」查看。（[d79d8226](https://github.com/anywhere-labs/Agents-Anywhere/commit/d79d8226)、[77baa3b6](https://github.com/anywhere-labs/Agents-Anywhere/commit/77baa3b6)、[9f1dee6e](https://github.com/anywhere-labs/Agents-Anywhere/commit/9f1dee6e)、[ce0451bc](https://github.com/anywhere-labs/Agents-Anywhere/commit/ce0451bc)、[45537974](https://github.com/anywhere-labs/Agents-Anywhere/commit/45537974)、[5a162554](https://github.com/anywhere-labs/Agents-Anywhere/commit/5a162554)）
