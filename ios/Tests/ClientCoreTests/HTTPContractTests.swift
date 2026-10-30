@@ -50,6 +50,28 @@ nonisolated private final class InterceptingURLProtocol: URLProtocol, @unchecked
         return URLSession(configuration: config)
     }
 
+    @Test func speechCredentialsUseCurrentAuthenticationEmptyBodyAndNoWriteRetry() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        let provider = MutableAuthTokenProvider(token: "first-test-token")
+        let api = V2APIClient(serverURL: URL(string: "https://example.test")!, tokenProvider: provider, urlSession: session)
+        let data = Data(#"{"provider":"aliyun","model":"test-asr","websocketUrl":"wss://example.test/asr","token":"synthetic-short-lived","expiresAt":1893456000,"languageHints":["zh","en"],"sampleRate":16000,"maxRecordingSeconds":300}"#.utf8)
+        InterceptingURLProtocol.state.reset([.response(200, data), .response(200, data), .failure(.timedOut), .response(200, data)])
+        let credentials = try await api.speech.credentials()
+        #expect(credentials.provider == "aliyun" && credentials.sampleRate == 16000)
+        #expect(credentials.languageHints == ["zh", "en"])
+        provider.update("second-test-token")
+        _ = try await api.speech.credentials()
+        await #expect(throws: ComposerSpeechFailure.networkUnavailable) { try await api.speech.credentials() }
+        let requests = InterceptingURLProtocol.state.requests
+        #expect(requests.count == 3)
+        #expect(requests.allSatisfy { $0.httpMethod == "POST" && $0.url?.path == "/api/v2/speech/credentials" && $0.httpBody == nil })
+        #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer first-test-token")
+        #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer second-test-token")
+        provider.update(nil)
+        await #expect(throws: ComposerSpeechFailure.authenticationFailed) { try await api.speech.credentials() }
+        #expect(InterceptingURLProtocol.state.requests.count == 3)
+    }
+
     @Test func refreshedTokenKeepsTheClientAndSharedSessionInventory() async throws {
         let session = session(); defer { session.invalidateAndCancel() }
         let provider = MutableAuthTokenProvider(token: "first-test-token")

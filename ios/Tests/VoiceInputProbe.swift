@@ -25,8 +25,7 @@ struct AppSymbol: View {
     var pending: CheckedContinuation<Void, Never>?
     func start(locale: Locale, onEvent: @escaping @MainActor (ComposerSpeechEvent) -> Void) async throws {
         callback = onEvent
-        if scenario == "download" {
-            onEvent(.downloadingModel)
+        if scenario == "preparing" {
             await withCheckedContinuation { pending = $0 }
             return
         }
@@ -77,7 +76,7 @@ struct AppSymbol: View {
         .environment(\.dynamicTypeSize, scenario == "large" ? .accessibility2 : .large)
         .task {
             switch scenario {
-            case "recording", "finishing", "download", "large", "narrow":
+            case "recording", "finishing", "preparing", "large", "narrow":
                 draft.text = "原稿："
                 voice.start(draft: draft, locale: Locale(identifier: "zh-CN"))
                 await voice.waitUntilSettled()

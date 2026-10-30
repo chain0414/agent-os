@@ -149,9 +149,9 @@ Semantic error and availability colors remain separate from the primary color.
 
 新会话和已有会话的输入框旁都有麦克风按钮：点按开始，再次点按结束；转写只进入当前草稿，用户检查、修改后手动发送。录音与收尾期间暂停编辑和发送，取消恢复录音前的文字，附件保持不变。离开页面、进入后台或音频中断时停止采集并保留已经显示的文字。
 
-识别使用 Apple 的 `SpeechAnalyzer`，优先 `SpeechTranscriber`，设备或当前键盘语言不支持时尝试设备端 `DictationTranscriber`；无法取得键盘语言时使用系统首选语言。只需要麦克风权限，无第三方 ASR API Key；音频不落盘，也不发送给 AA Server、Codex 或 DSH。首次使用某种语言可能需要联网下载系统模型，下载期间可以取消；不支持的设备或语言可继续使用键盘听写。
+识别使用阿里云百炼 `qwen-audio-3.0-asr-flash-streaming`。Server 2.2 的语音凭证接口保存永久 Key，并向已登录账户签发短期凭证；手机通过 WebSocket 直接上传音频到阿里云。首次无需下载模型，但必须联网并允许麦克风权限；音频和临时凭据不落盘，Server、Codex 和 DSH 不接收录音。识别语言显式包含中文与英文，不受键盘语言影响。
 
-模型和音频会话由识别服务管理，界面状态及草稿由 `ComposerVoiceInput` 管理。回调绑定到单次录音和草稿，中文候选文字未确认时不启动录音，开始前保存 UTF-16 选区，暂定结果按音频时间范围更新。最终结果排空前不能发送；收尾超时保留已转写的文字并允许重试。
+音频和网络会话由识别服务管理，界面状态及草稿由 `ComposerVoiceInput` 管理。权限获准后即开始采集，凭证和连接准备期间缓存首段音频；准备和收尾均有超时，缓冲有上限。回调绑定到单次录音和草稿，中文候选文字未确认时不启动录音，开始前保存 UTF-16 选区。转写按句子 ID 替换中间结果，最终全空时撤回已显示的暂定文字并恢复原稿。收到阿里云结束确认前不能发送；失败保留已有文字并允许重试。
 
 本功能的测试边界：SwiftPM 使用假识别器检查取消、迟到回调、草稿替换、Unicode 选区、发送保护和中间结果合并；`Tests/VoiceInputProbe.swift` 使用真实输入框与合成 ASR 事件检查模拟器界面。后者不访问网络、不录音、不发送消息，运行方式：
 
@@ -160,7 +160,7 @@ python3 ios/scripts/probe-voice-input.py --device <booted-simulator-udid> --outp
 xcrun simctl launch <booted-simulator-udid> com.agentsanywhere.voice-input-probe recording
 ```
 
-可传入 `empty-new-session`、`recording`、`finishing`、`download`、`narrow`、`large` 和 `error` 查看不同合成状态。真机麦克风、语言模型下载、中文与英文混说的准确率、蓝牙切换、离线识别以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。
+可传入 `empty-new-session`、`recording`、`finishing`、`preparing`、`narrow`、`large` 和 `error` 查看不同合成状态。真机麦克风、中文与英文混说的准确率、弱网、蓝牙切换以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。接口和部署配置见 [语音输入凭证](../docs/api/speech.md)。
 
 ## Session presentation and files
 

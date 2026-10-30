@@ -11,6 +11,7 @@ struct SessionChatView: View, Equatable {
     @State private var expandedNoticeID: String?
     private let fileService: V2WorkspaceFilesService
     private let detailService: V2SessionDetailService
+    private let speechService: V2SpeechService
     private enum SessionSheet: Identifiable {
         case notices, details, files, preview(SessionFileReference, root: String? = nil)
         var id: String { switch self { case .notices: "notices"; case .details: "details"; case .files: "files"; case .preview(let reference, let root): "file:\(root ?? ""):\(reference.id)" } }
@@ -39,6 +40,7 @@ struct SessionChatView: View, Equatable {
         sessionIdentity = session
         self.deviceName = deviceName
         fileService = services.workspaceFiles; detailService = services.sessionDetail
+        speechService = services.speech
         self.onMenu = onMenu
     }
     private var controls: ChatControlMetrics { .init(bodyLineHeight: bodyLineHeight) }
@@ -83,7 +85,8 @@ struct SessionChatView: View, Equatable {
                             settingsError: model.settingsError, sessionChat: model,
                             onSend: model.send, onStop: model.interrupt, onLoadSettings: model.loadSettings,
                             onApplySettings: model.applySettings, applyError: { model.settingsError },
-                            onDraftChange: { model.repository.draftDidChange(sessionID: model.session.id) })
+                            onDraftChange: { model.repository.draftDidChange(sessionID: model.session.id) },
+                            credentials: { try await speechService.credentials() })
                             .traceChatLayout("composer-dock")
                     }
                     .frame(maxWidth: ChatControlMetrics.maximumContentWidth).frame(maxWidth: .infinity)

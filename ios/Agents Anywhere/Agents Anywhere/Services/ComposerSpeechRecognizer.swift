@@ -1,146 +1,141 @@
 #if os(iOS)
 import AVFoundation
-import CoreMedia
 import Foundation
-import Speech
+import UIKit
 
-/// Audio stays in memory and is consumed exclusively by Apple's on-device modules.
+/// Audio stays in memory and goes directly to Aliyun using a temporary token.
 @MainActor
 final class ComposerSpeechRecognizer: ComposerSpeechRecognizing {
+    private final class Signal {
+        private var result: Result<Void, Error>?
+        private var continuation: CheckedContinuation<Void, Error>?
+        func wait() async throws {
+            if let result { return try result.get() }
+            try await withCheckedThrowingContinuation { continuation = $0 }
+        }
+        func resolve(_ result: Result<Void, Error>) {
+            guard self.result == nil else { return }
+            self.result = result
+            continuation?.resume(with: result)
+            continuation = nil
+        }
+    }
+
     private final class Session {
         var callback: (@MainActor (ComposerSpeechEvent) -> Void)?
         var setupTask: Task<Void, Error>?
-        var resultsTask: Task<Void, Error>?
+        var receiveTask: Task<Void, Never>?
+        var sendTask: Task<Void, Error>?
         var finishTask: Task<Void, Error>?
-        var cleanupTask: Task<Void, Never>?
-        var analyzer: SpeechAnalyzer?
+        var preparationTimeout: Task<Void, Never>?
+        var recordingTimeout: Task<Void, Never>?
+        var finishTimeout: Task<Void, Never>?
         var engine: AVAudioEngine?
         var input: ComposerSpeechAudioInput?
-        var reservedLocale: Locale?
-        var installation: AssetInstallationRequest?
+        var network: URLSession?
+        var socket: URLSessionWebSocketTask?
+        var wire = AliyunSpeechProtocol(taskID: UUID().uuidString.lowercased())
+        let ready = Signal()
+        let finished = Signal()
         var observers: [NSObjectProtocol] = []
         var tapInstalled = false
         var audioSessionActive = false
         var hasTranscript = false
-        var finalization: Finalization?
-        var finalizationTimedOut = false
-
-        init(callback: @escaping @MainActor (ComposerSpeechEvent) -> Void) {
-            self.callback = callback
-        }
+        var finishRequested = false
+        var failure: ComposerSpeechFailure?
+        var snapshotSequence: Double = 0
+        var captureStarted = ContinuousClock.now
+        init(callback: @escaping @MainActor (ComposerSpeechEvent) -> Void) { self.callback = callback }
     }
 
-    private final class Finalization {
-        var continuation: CheckedContinuation<Void, Error>?
-        var operation: Task<Void, Never>?
-        var timeout: Task<Void, Never>?
-
-        func resolve(_ result: Result<Void, Error>) {
-            guard let continuation else { return }
-            self.continuation = nil
-            timeout?.cancel()
-            operation?.cancel()
-            timeout = nil
-            operation = nil
-            continuation.resume(with: result)
-        }
-    }
-
-    // Every composer creates its own recognizer, but AVAudioSession and model
-    // reservations belong to the process. One owner and one cleanup chain cover
-    // both active recordings and starts waiting for their predecessor to exit.
+    // AVAudioSession belongs to the process even when several composers exist.
     private static weak var owner: ComposerSpeechRecognizer?
-    private static var cleanupTail: Task<Void, Never>?
     private var current: Session?
+    private let credentials: @MainActor @Sendable () async throws -> V2SpeechCredentials
 
-    isolated deinit {
-        cancel()
+    init(credentials: @escaping @MainActor @Sendable () async throws -> V2SpeechCredentials = { throw ComposerSpeechFailure.unavailable }) {
+        self.credentials = credentials
     }
+
+    isolated deinit { cancel() }
 
     func start(locale: Locale, onEvent: @escaping @MainActor (ComposerSpeechEvent) -> Void) async throws {
         try Task.checkCancellation()
         cancel()
-        if let previous = Self.owner, let session = previous.current {
-            previous.fail(session, with: .interrupted)
-        }
-        // Publish the pending session before any suspension so another composer
-        // can interrupt it immediately, including while model cleanup is pending.
+        if let previous = Self.owner, let active = previous.current { previous.fail(active, with: .interrupted) }
         let session = Session(callback: onEvent)
         current = session
         Self.owner = self
-        let predecessor = Self.cleanupTail
-        let setup = Task {
-            // Capture the predecessor before this session can create its own
-            // cleanup task. Reading the shared tail here could wait on ourselves.
-            await predecessor?.value
-            try self.requireCurrent(session)
-            try await self.prepare(session, locale: locale)
-        }
+        // Language hints come from the service configuration, never the keyboard.
+        let setup = Task { try await self.prepare(session) }
         session.setupTask = setup
         do {
             try await withTaskCancellationHandler {
                 try await setup.value
-                try Task.checkCancellation()
-                try requireCurrent(session)
+                try self.requireCurrent(session)
             } onCancel: {
                 setup.cancel()
-                Task { @MainActor [weak self] in
-                    guard self?.current === session else { return }
-                    self?.cancel()
+                Task { @MainActor [weak self, weak session] in
+                    guard let self, let session, self.current === session else { return }
+                    self.cancel()
                 }
             }
         } catch {
-            detach(session)
-            await cleanUp(session).value
+            if let failure = session.failure { throw failure }
             if error is CancellationError { throw error }
-            throw (error as? ComposerSpeechFailure) ?? .recognitionFailed
+            let failure = Self.failure(error)
+            fail(session, with: failure)
+            throw failure
         }
     }
 
     func finish() async throws {
         guard let session = current else { return }
-        if let finishing = session.finishTask {
-            try await finishing.value
-            return
+        // Stop synchronously, including when credentials are still pending.
+        stopCapture(session)
+        if let finishing = session.finishTask { return try await finishing.value }
+        session.finishTimeout = Task { @MainActor [weak self, weak session] in
+            do { try await Task.sleep(for: .seconds(20)); try Task.checkCancellation() } catch { return }
+            guard let self, let session else { return }
+            self.fail(session, with: .networkUnavailable)
         }
         let finishing = Task { @MainActor in
-            try await session.setupTask?.value
-            try self.requireCurrent(session)
-            self.stopCapture(session)
-            await session.input?.finish()
-            try self.requireCurrent(session)
             do {
-                try await self.finalizeAndDrain(session)
+                await session.input?.finish()
+                try await session.setupTask?.value
+                try self.requireCurrent(session)
+                try await session.sendTask?.value
+                try self.requireCurrent(session)
+                guard let socket = session.socket else { throw ComposerSpeechFailure.networkUnavailable }
+                session.finishRequested = true
+                try await socket.send(.string(String(decoding: session.wire.finishTask(), as: UTF8.self)))
+                try await session.finished.wait()
                 try self.requireCurrent(session)
                 let hasTranscript = session.hasTranscript
-                self.detach(session)
-                await self.cleanUp(session).value
+                self.release(session)
                 if !hasTranscript { throw ComposerSpeechFailure.noSpeech }
             } catch {
-                self.detach(session)
-                let cleanup = self.cleanUp(session)
-                if !session.finalizationTimedOut, !(error is CancellationError) {
-                    await cleanup.value
-                }
-                if error is CancellationError { throw error }
-                throw (error as? ComposerSpeechFailure) ?? .recognitionFailed
+                let failure = session.failure ?? Self.failure(error)
+                self.fail(session, with: failure)
+                if error is CancellationError, session.failure == nil { throw error }
+                throw failure
             }
         }
         session.finishTask = finishing
-        try await finishing.value
+        try await withTaskCancellationHandler {
+            try await finishing.value
+        } onCancel: {
+            finishing.cancel()
+            Task { @MainActor [weak self, weak session] in
+                guard let self, let session, self.current === session else { return }
+                self.cancel()
+            }
+        }
     }
 
     func cancel() {
         guard let session = current else { return }
-        detach(session)
-        session.callback = nil
-        session.setupTask?.cancel()
-        session.resultsTask?.cancel()
-        session.installation?.progress.cancel()
-        session.finalization?.resolve(.failure(CancellationError()))
-        stopCapture(session)
-        session.input?.cancel()
-        cleanUp(session)
+        release(session)
     }
 
     private func requireCurrent(_ session: Session) throws {
@@ -148,198 +143,169 @@ final class ComposerSpeechRecognizer: ComposerSpeechRecognizing {
         guard current === session, Self.owner === self else { throw CancellationError() }
     }
 
-    private func detach(_ session: Session) {
-        guard current === session else { return }
-        current = nil
-        if Self.owner === self { Self.owner = nil }
-    }
-
-    private func finalizeAndDrain(_ session: Session) async throws {
-        let finalization = Finalization()
-        session.finalization = finalization
-        try await withCheckedThrowingContinuation { continuation in
-            finalization.continuation = continuation
-            finalization.operation = Task { @MainActor in
-                do {
-                    try await session.analyzer?.finalizeAndFinishThroughEndOfInput()
-                    // Finalize can return before the result consumer delivers its last item.
-                    try await session.resultsTask?.value
-                    try self.requireCurrent(session)
-                    finalization.resolve(.success(()))
-                } catch {
-                    finalization.resolve(.failure(error))
-                }
-            }
-            finalization.timeout = Task { @MainActor [weak self, weak session] in
-                do { try await Task.sleep(for: .seconds(15)) } catch { return }
-                guard let self, let session, self.current === session else { return }
-                session.finalizationTimedOut = true
-                finalization.resolve(.failure(ComposerSpeechFailure.recognitionFailed))
-                self.fail(session, with: .recognitionFailed)
-            }
-        }
-    }
-
-    private func prepare(_ session: Session, locale: Locale) async throws {
+    private func prepare(_ session: Session) async throws {
         let granted = await AVAudioApplication.requestRecordPermission()
         try requireCurrent(session)
         guard granted else { throw ComposerSpeechFailure.microphoneDenied }
-
-        let module: any SpeechModule
-        let selectedLocale: Locale
-        let startResults: @MainActor () -> Task<Void, Error>
-        if SpeechTranscriber.isAvailable,
-           let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale),
-           Self.sameLanguage(supported, locale) {
-            selectedLocale = supported
-            let transcriber = SpeechTranscriber(locale: supported, preset: .timeIndexedProgressiveTranscription)
-            module = transcriber
-            startResults = { self.consume(transcriber.results, session: session) { $0.text } }
-        } else if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale),
-                  Self.sameLanguage(supported, locale) {
-            selectedLocale = supported
-            let transcriber = DictationTranscriber(
-                locale: supported,
-                contentHints: [],
-                transcriptionOptions: [.punctuation],
-                reportingOptions: [.volatileResults],
-                attributeOptions: [.audioTimeRange]
+        try beginCapture(session)
+        session.callback?(.recording)
+        try requireCurrent(session)
+        session.preparationTimeout = Task { @MainActor [weak self, weak session] in
+            do { try await Task.sleep(for: .seconds(20)); try Task.checkCancellation() } catch { return }
+            guard let self, let session else { return }
+            self.fail(session, with: .networkUnavailable)
+        }
+        let credential = try await credentials()
+        try requireCurrent(session)
+        do {
+            try AliyunSpeechProtocol.validateCredentials(
+                provider: credential.provider, model: credential.model, url: credential.websocketUrl,
+                token: credential.token, expiresAt: credential.expiresAt, languageHints: credential.languageHints,
+                sampleRate: credential.sampleRate, maxRecordingSeconds: credential.maxRecordingSeconds
             )
-            module = transcriber
-            startResults = { self.consume(transcriber.results, session: session) { $0.text } }
-        } else {
-            throw ComposerSpeechFailure.unsupportedLanguage
-        }
+        } catch { throw ComposerSpeechFailure.serviceUnavailable }
+        if session.finishTask == nil { armRecordingLimit(session, seconds: credential.maxRecordingSeconds) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 330
+        let network = URLSession(configuration: configuration, delegate: ComposerSpeechNetworkDelegate(), delegateQueue: nil)
+        session.network = network
+        var request = URLRequest(url: credential.websocketUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        let socket = network.webSocketTask(with: request)
+        socket.maximumMessageSize = 1_048_576
+        session.socket = socket
+        session.receiveTask = receive(session, socket: socket)
+        socket.resume()
+        try await socket.send(.string(String(decoding: session.wire.runTask(model: credential.model, languageHints: credential.languageHints), as: UTF8.self)))
+        try await session.ready.wait()
         try requireCurrent(session)
-        let modules = [module]
-        let status = await AssetInventory.status(forModules: modules)
-        try requireCurrent(session)
-        guard status != .unsupported else { throw ComposerSpeechFailure.unavailable }
-        do {
-            // Reserve returns false when this process already owns the reservation.
-            // Release only reservations acquired by this service.
-            if try await AssetInventory.reserve(locale: selectedLocale) {
-                session.reservedLocale = selectedLocale
-            }
-            try requireCurrent(session)
-            if status != .installed {
-                session.callback?(.downloadingModel)
-                if let installation = try await AssetInventory.assetInstallationRequest(supporting: modules) {
-                    session.installation = installation
-                    try requireCurrent(session)
-                    try await installation.downloadAndInstall()
-                    session.installation = nil
+        session.preparationTimeout?.cancel()
+        session.preparationTimeout = nil
+        guard let input = session.input else { throw ComposerSpeechFailure.audioUnavailable }
+        session.sendTask = Task { @MainActor [weak self, weak session] in
+            do {
+                for await data in input.stream {
+                    guard let self, let session else { throw CancellationError() }
+                    try self.requireCurrent(session)
+                    try await socket.send(.data(data))
+                    input.consumed(bytes: data.count)
                 }
-                try requireCurrent(session)
-                guard await AssetInventory.status(forModules: modules) == .installed else {
-                    throw ComposerSpeechFailure.modelDownload
+            } catch {
+                if !(error is CancellationError), let self, let session {
+                    self.fail(session, with: Self.failure(error, socket: socket))
                 }
+                throw error
             }
-        } catch {
-            try requireCurrent(session)
-            throw ComposerSpeechFailure.modelDownload
         }
-        try requireCurrent(session)
+    }
 
-        let audioSession = AVAudioSession.sharedInstance()
+    private func beginCapture(_ session: Session) throws {
         do {
+            let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.record, mode: .measurement, options: [.allowBluetoothHFP])
             try audioSession.setActive(true)
             session.audioSessionActive = true
-        } catch {
-            throw ComposerSpeechFailure.audioUnavailable
-        }
-        observeAudioChanges(session)
-        let engine = AVAudioEngine()
-        session.engine = engine
-        let naturalFormat = engine.inputNode.outputFormat(forBus: 0)
-        guard naturalFormat.channelCount > 0, naturalFormat.sampleRate > 0,
-              let format = await SpeechAnalyzer.bestAvailableAudioFormat(
-                compatibleWith: modules, considering: naturalFormat
-              ) else { throw ComposerSpeechFailure.audioUnavailable }
-        try requireCurrent(session)
-        let analyzer = SpeechAnalyzer(modules: modules)
-        session.analyzer = analyzer
-        // Start consumption only after an analyzer exists to terminate the stream
-        // during cleanup, including failures in prepareToAnalyze or engine.start.
-        session.resultsTask = startResults()
-        let input = try ComposerSpeechAudioInput(source: naturalFormat, destination: format) { [weak self, weak session] in
-            Task { @MainActor [weak self, weak session] in
-                guard let self, let session else { return }
-                self.fail(session, with: .audioUnavailable)
+            let engine = AVAudioEngine()
+            session.engine = engine
+            let source = engine.inputNode.outputFormat(forBus: 0)
+            guard source.channelCount > 0, source.sampleRate > 0,
+                  let destination = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true) else {
+                throw ComposerSpeechFailure.audioUnavailable
             }
-        }
-        session.input = input
-        do {
-            try await analyzer.prepareToAnalyze(in: format)
-            try requireCurrent(session)
-            try await analyzer.start(inputSequence: input.stream)
-            try requireCurrent(session)
-            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: naturalFormat) { buffer, _ in
-                input.append(buffer)
+            let input = try ComposerSpeechAudioInput(source: source, destination: destination) { [weak self, weak session] in
+                Task { @MainActor [weak self, weak session] in
+                    guard let self, let session else { return }
+                    self.fail(session, with: .audioUnavailable)
+                }
             }
+            session.input = input
+            observeAudioChanges(session)
+            engine.inputNode.installTap(onBus: 0, bufferSize: 1_024, format: source) { buffer, _ in input.append(buffer) }
             session.tapInstalled = true
             engine.prepare()
             try engine.start()
-        } catch {
-            try requireCurrent(session)
-            throw ComposerSpeechFailure.audioUnavailable
+            session.captureStarted = .now
+            armRecordingLimit(session, seconds: 300)
+        } catch { throw ComposerSpeechFailure.audioUnavailable }
+    }
+
+    private func armRecordingLimit(_ session: Session, seconds: Int) {
+        session.recordingTimeout?.cancel()
+        let deadline = session.captureStarted.advanced(by: .seconds(seconds))
+        session.recordingTimeout = Task { @MainActor [weak self, weak session] in
+            do { try await ContinuousClock().sleep(until: deadline); try Task.checkCancellation() } catch { return }
+            guard let self, let session else { return }
+            self.fail(session, with: .interrupted)
         }
-        session.callback?(.recording)
     }
 
-    private static func sameLanguage(_ lhs: Locale, _ rhs: Locale) -> Bool {
-        lhs.language.languageCode == rhs.language.languageCode
-            && lhs.language.languageCode != nil
-    }
-
-    private func consume<S: AsyncSequence & Sendable>(
-        _ sequence: S,
-        session: Session,
-        text: @escaping @Sendable (S.Element) -> AttributedString
-    ) -> Task<Void, Error> where S.Element: SpeechModuleResult & Sendable {
+    private func receive(_ session: Session, socket: URLSessionWebSocketTask) -> Task<Void, Never> {
         Task { @MainActor [weak self, weak session] in
             do {
-                for try await result in sequence {
-                    try Task.checkCancellation()
-                    guard let self, let session, self.current === session else { return }
-                    let transcript = String(text(result).characters)
-                    let start = result.range.start.seconds
-                    let end = CMTimeRangeGetEnd(result.range).seconds
-                    guard start.isFinite, end.isFinite, end >= start else { continue }
-                    if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        session.hasTranscript = true
+                while !Task.isCancelled {
+                    let message = try await socket.receive()
+                    guard let self, let session else { return }
+                    try self.requireCurrent(session)
+                    let data: Data
+                    switch message {
+                    case let .string(text): data = Data(text.utf8)
+                    case let .data(bytes): data = bytes
+                    @unknown default: throw ComposerSpeechFailure.recognitionFailed
                     }
-                    session.callback?(.transcript(text: transcript, start: start, end: end, isFinal: result.isFinal))
-                }
-                if let self, let session, self.current === session, session.finishTask == nil {
-                    self.fail(session, with: .recognitionFailed)
-                    throw ComposerSpeechFailure.recognitionFailed
+                    guard let event = try session.wire.receive(data) else { continue }
+                    switch event {
+                    case .started: session.ready.resolve(.success(()))
+                    case let .transcript(text): self.emitSnapshot(text, final: false, session: session)
+                    case let .finished(text):
+                        guard session.finishRequested else { throw ComposerSpeechFailure.recognitionFailed }
+                        self.emitSnapshot(text, final: true, session: session)
+                        session.finished.resolve(.success(()))
+                        return
+                    case let .failed(failure):
+                        let mapped: ComposerSpeechFailure
+                        switch failure {
+                        case .authentication: mapped = .authenticationFailed
+                        case .rateLimited: mapped = .rateLimited
+                        case .serviceUnavailable: mapped = .serviceUnavailable
+                        case .recognition: mapped = .recognitionFailed
+                        }
+                        throw mapped
+                    }
                 }
             } catch {
-                if error is CancellationError { throw error }
-                if let self, let session { self.fail(session, with: .recognitionFailed) }
-                throw ComposerSpeechFailure.recognitionFailed
+                guard !(error is CancellationError), let self, let session else { return }
+                self.fail(session, with: Self.failure(error, socket: socket))
             }
         }
     }
 
+    private func emitSnapshot(_ text: String, final: Bool, session: Session) {
+        session.hasTranscript = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard session.hasTranscript else {
+            session.callback?(.clearTranscript)
+            return
+        }
+        // One overlapping range replaces the entire draft snapshot. Only the
+        // task-finished acknowledgement seals it against later interim updates.
+        session.snapshotSequence += 1
+        session.callback?(.transcript(text: text, start: 0, end: session.snapshotSequence, isFinal: final))
+    }
+
     private func observeAudioChanges(_ session: Session) {
-        let center = NotificationCenter.default
-        for name in [AVAudioSession.interruptionNotification,
-                     AVAudioSession.routeChangeNotification,
-                     AVAudioSession.mediaServicesWereResetNotification] {
-            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self, weak session] notification in
-                // Transfer only immutable values across the actor boundary.
-                let isInterruptionEnd = notification.name == AVAudioSession.interruptionNotification
-                    && (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
-                        == AVAudioSession.InterruptionType.ended.rawValue
-                let routeReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
-                    .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-                let harmlessRouteChange = notification.name == AVAudioSession.routeChangeNotification
-                    && (routeReason == .categoryChange || routeReason == .override)
-                guard !isInterruptionEnd, !harmlessRouteChange else { return }
-                Task { @MainActor [weak self, weak session] in
+        for name in [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification,
+                     AVAudioSession.mediaServicesWereResetNotification, UIApplication.didEnterBackgroundNotification] {
+            let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self, weak session] notification in
+                let interruptionEnded = notification.name == AVAudioSession.interruptionNotification
+                    && (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.ended.rawValue
+                let route = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+                let harmlessRoute = notification.name == AVAudioSession.routeChangeNotification && (route == .categoryChange || route == .override)
+                guard !interruptionEnded, !harmlessRoute else { return }
+                MainActor.assumeIsolated {
                     guard let self, let session else { return }
                     self.fail(session, with: .interrupted)
                 }
@@ -348,16 +314,10 @@ final class ComposerSpeechRecognizer: ComposerSpeechRecognizing {
         }
     }
 
-    private func fail(_ session: Session, with error: ComposerSpeechFailure) {
-        guard current === session else { return }
-        let callback = session.callback
-        cancel()
-        callback?(.failed(error))
-    }
-
     private func stopCapture(_ session: Session) {
         session.observers.forEach(NotificationCenter.default.removeObserver)
         session.observers.removeAll()
+        session.recordingTimeout?.cancel()
         session.engine?.stop()
         if session.tapInstalled {
             session.engine?.inputNode.removeTap(onBus: 0)
@@ -369,37 +329,58 @@ final class ComposerSpeechRecognizer: ComposerSpeechRecognizing {
         }
     }
 
-    @discardableResult
-    private func cleanUp(_ session: Session) -> Task<Void, Never> {
-        if let existing = session.cleanupTask { return existing }
-        stopCapture(session)
+    private func fail(_ session: Session, with error: ComposerSpeechFailure) {
+        guard current === session else { return }
+        session.failure = error
+        let callback = session.callback
+        release(session)
+        callback?(.failed(error))
+    }
+
+    private func release(_ session: Session) {
+        guard current === session else { return }
+        current = nil
+        if Self.owner === self { Self.owner = nil }
         session.callback = nil
+        stopCapture(session)
         session.input?.cancel()
+        let error: Error = (session.failure as Error?) ?? CancellationError()
+        session.ready.resolve(.failure(error))
+        session.finished.resolve(.failure(error))
         session.setupTask?.cancel()
-        session.resultsTask?.cancel()
-        session.installation?.progress.cancel()
-        let cleanup = Task { @MainActor in
-            // A cancelled installation/reservation may still return. Let setup record ownership first.
-            _ = await session.setupTask?.result
-            await session.analyzer?.cancelAndFinishNow()
-            _ = await session.resultsTask?.result
-            if let locale = session.reservedLocale {
-                await AssetInventory.release(reservedLocale: locale)
-                session.reservedLocale = nil
-            }
-            session.input = nil
-            session.analyzer = nil
-            session.engine = nil
-            session.installation = nil
+        session.receiveTask?.cancel()
+        session.sendTask?.cancel()
+        session.preparationTimeout?.cancel()
+        session.finishTimeout?.cancel()
+        session.socket?.cancel(with: .goingAway, reason: nil)
+        session.network?.invalidateAndCancel()
+        session.socket = nil
+        session.network = nil
+        session.engine = nil
+        session.input = nil
+    }
+
+    private static func failure(_ error: Error, socket: URLSessionWebSocketTask? = nil) -> ComposerSpeechFailure {
+        if let error = error as? ComposerSpeechFailure { return error }
+        if let response = socket?.response as? HTTPURLResponse {
+            if response.statusCode == 401 || response.statusCode == 403 { return .authenticationFailed }
+            if response.statusCode == 429 { return .rateLimited }
+            if response.statusCode >= 500 { return .serviceUnavailable }
         }
-        session.cleanupTask = cleanup
-        Self.cleanupTail = cleanup
-        return cleanup
+        if error is URLError { return .networkUnavailable }
+        return .recognitionFailed
     }
 }
 
-/// The tap copies AVAudioEngine's reused buffer before returning. Conversion and
-/// timestamps are serialized off the main actor; no audio data is written to disk.
+/// Reject all redirects so Authorization can never reach a different endpoint.
+nonisolated private final class ComposerSpeechNetworkDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+/// The tap copies AVAudioEngine's reused buffer before returning. Conversion is
+/// serialized off the main actor; no audio data is written to disk.
 nonisolated private final class ComposerSpeechAudioInput: @unchecked Sendable {
     /// Ownership transfers to the audio queue; the copy is never mutated elsewhere.
     private struct OwnedBuffer: @unchecked Sendable {
@@ -432,8 +413,8 @@ nonisolated private final class ComposerSpeechAudioInput: @unchecked Sendable {
         }
     }
 
-    let stream: AsyncStream<AnalyzerInput>
-    private let continuation: AsyncStream<AnalyzerInput>.Continuation
+    let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
     private let queue = DispatchQueue(label: "com.agents-anywhere.composer-speech-audio")
     private let lock = NSLock()
     private let destination: AVAudioFormat
@@ -442,8 +423,9 @@ nonisolated private final class ComposerSpeechAudioInput: @unchecked Sendable {
     private var accepting = true
     private var cancelled = false
     private var pending = 0
-    // The following fields are used only on queue.
-    private var outputFrames: Int64 = 0
+    // Protected by lock, including acknowledgements from the network consumer.
+    private var queuedBytes = 0
+    // Accessed only on queue.
     private var failed = false
 
     init(source: AVAudioFormat, destination: AVAudioFormat, failure: @escaping @Sendable () -> Void) throws {
@@ -457,7 +439,7 @@ nonisolated private final class ComposerSpeechAudioInput: @unchecked Sendable {
             }
             self.converter = converter
         }
-        (stream, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingOldest(64))
+        (stream, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingOldest(8192))
     }
 
     func append(_ buffer: AVAudioPCMBuffer) {
@@ -546,12 +528,28 @@ nonisolated private final class ComposerSpeechAudioInput: @unchecked Sendable {
         }
     }
 
+    func consumed(bytes: Int) {
+        lock.withLock { queuedBytes = max(0, queuedBytes - bytes) }
+    }
+
     private func yield(_ buffer: AVAudioPCMBuffer) {
-        let start = CMTime(value: outputFrames, timescale: CMTimeScale(destination.sampleRate.rounded()))
-        outputFrames += Int64(buffer.frameLength)
-        if case .dropped = continuation.yield(AnalyzerInput(buffer: buffer, bufferStartTime: start)) {
-            reportFailure()
+        guard let samples = buffer.int16ChannelData?[0] else { reportFailure(); return }
+        let frames = Int(buffer.frameLength)
+        var data = Data(count: frames * MemoryLayout<Int16>.size)
+        data.withUnsafeMutableBytes { bytes in
+            for frame in 0..<frames {
+                bytes.storeBytes(of: samples[frame].littleEndian, toByteOffset: frame * 2, as: Int16.self)
+            }
         }
+        // Forty seconds at 16 kHz mono PCM16 bounds both startup buffering and
+        // network backpressure. Overflow fails visibly instead of dropping speech.
+        let accepted = lock.withLock {
+            guard !cancelled, queuedBytes + data.count <= 1_280_000 else { return false }
+            queuedBytes += data.count
+            return true
+        }
+        guard accepted else { reportFailure(); return }
+        if case .dropped = continuation.yield(data) { reportFailure() }
     }
 
     private func reportFailure() {

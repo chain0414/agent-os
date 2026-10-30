@@ -24,6 +24,8 @@ def main():
         root / "ios/Tests/VoiceInputProbe.swift",
         app / "Models/Chat/ComposerDraft.swift",
         app / "Models/Chat/ComposerVoiceInput.swift",
+        app / "Models/Chat/AliyunSpeechProtocol.swift",
+        app / "Domain/Speech/V2SpeechCredentials.swift",
         app / "Services/ComposerSpeechRecognizer.swift",
         app / "Views/AppTheme.swift",
         *[app / f"Views/Chat/Composer/{name}.swift" for name in (

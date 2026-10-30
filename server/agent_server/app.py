@@ -38,11 +38,14 @@ from agent_server.api import (
     sessions_fs,
     sessions_terminal,
     shares,
+    speech,
 )
 from agent_server.core.api_namespace import API_V2_PREFIX
 from agent_server.core.process_settings import ProcessSettings
 from agent_server.core.setup_token import SetupToken
+from agent_server.core.speech import load_speech_settings
 from agent_server.core.utc import utc_now
+from agent_server.infra.aliyun_speech import AliyunSpeechGateway
 from agent_server.infra.connector_rpc import ConnectorRpcManager
 from agent_server.infra.db.migrations import (
     database_schema_version,
@@ -52,6 +55,7 @@ from agent_server.infra.db.migrations import (
 from agent_server.infra.fs_downloads import FsDownloadRelayManager
 from agent_server.infra.redis_coordinator import RedisCoordinator
 from agent_server.infra.repositories.facade import Store
+from agent_server.infra.speech_rate_limit import SpeechRateLimiter
 from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.terminal_stream_hub import TerminalStreamHub
 from agent_server.infra.timeline_broker import TimelineBroker
@@ -66,6 +70,7 @@ from agent_server.services.effective_capabilities import (
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
 from agent_server.services.setup_tokens import SetupTokenService
 from agent_server.services.shell_tasks import ShellTaskManager
+from agent_server.services.speech import SpeechCredentialsService
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 from agent_server.services.usage_events import UsageRecorder
 from agent_server.services.usage_maintenance import UsageMaintenanceLoop
@@ -188,7 +193,7 @@ def create_app(
                                 finally:
                                     await app.state.store.close()
 
-    app = FastAPI(title="Agent Server", version="2.1.0", lifespan=lifespan)
+    app = FastAPI(title="Agent Server", version="2.2.0", lifespan=lifespan)
     app.add_exception_handler(
         ConnectorServiceError,
         error_handlers.connector_service_error_handler,
@@ -222,6 +227,9 @@ def create_app(
             os.environ.get("AGENT_SERVER_REDIS_HEALTH_CHECK_INTERVAL", "30")
         ),
         slow_lock_ms=float(os.environ.get("AGENT_SERVER_LOCK_SLOW_MS", "0")),
+    )
+    app.state.speech_credentials = SpeechCredentialsService(
+        load_speech_settings(), AliyunSpeechGateway(), SpeechRateLimiter(app.state.redis),
     )
     app.state.rpc = ConnectorRpcManager(
         app.state.redis,
@@ -359,6 +367,7 @@ def create_app(
         )
 
     app.include_router(auth.router, prefix=API_V2_PREFIX)
+    app.include_router(speech.router, prefix=API_V2_PREFIX)
     app.include_router(admin.router, prefix=API_V2_PREFIX)
     app.include_router(announcements.router, prefix=API_V2_PREFIX)
     app.include_router(announcements.admin_router, prefix=API_V2_PREFIX)

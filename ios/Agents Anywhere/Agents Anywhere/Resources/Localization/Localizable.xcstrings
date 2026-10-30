@@ -16090,19 +16090,19 @@
         }
       }
     },
-    "当前输入语言不支持语音识别，请切换键盘语言或使用键盘听写。": {
+    "无法连接语音服务，请检查网络后重试。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speech recognition is unavailable for the current input language. Switch keyboard languages or use keyboard dictation."
+            "value": "Cannot connect to the speech service. Check your connection and try again."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前输入语言不支持语音识别，请切换键盘语言或使用键盘听写。"
+            "value": "无法连接语音服务，请检查网络后重试。"
           }
         }
       }
@@ -16124,19 +16124,19 @@
         }
       }
     },
-    "正在下载语音模型…": {
+    "登录已失效，请重新登录后使用语音输入。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Downloading speech model…"
+            "value": "Your sign-in has expired. Sign in again to use voice input."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在下载语音模型…"
+            "value": "登录已失效，请重新登录后使用语音输入。"
           }
         }
       }
@@ -16192,19 +16192,19 @@
         }
       }
     },
-    "此设备暂不支持应用内语音输入，请使用键盘听写。": {
+    "语音输入暂不可用，请稍后重试。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "In-app voice input is unavailable on this device. Use keyboard dictation instead."
+            "value": "Voice input is temporarily unavailable. Try again later."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此设备暂不支持应用内语音输入，请使用键盘听写。"
+            "value": "语音输入暂不可用，请稍后重试。"
           }
         }
       }
@@ -16243,19 +16243,19 @@
         }
       }
     },
-    "语音模型未能准备好，请联网后重试。": {
+    "服务器暂不支持语音输入，请稍后重试。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not prepare the speech model. Connect to the internet and try again."
+            "value": "Voice input is unavailable on this server. Try again later."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "语音模型未能准备好，请联网后重试。"
+            "value": "服务器暂不支持语音输入，请稍后重试。"
           }
         }
       }
@@ -16375,6 +16375,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "回复"
+          }
+        }
+      }
+    },
+    "语音输入请求过于频繁，请稍后重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many voice input requests. Try again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音输入请求过于频繁，请稍后重试。"
           }
         }
       }

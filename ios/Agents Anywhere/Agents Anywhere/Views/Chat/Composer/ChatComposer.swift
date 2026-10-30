@@ -25,7 +25,26 @@ struct ChatComposer: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Namespace private var glass
-    @State var voice = ComposerVoiceInput(recognizer: ComposerSpeechRecognizer())
+    @State var voice: ComposerVoiceInput
+
+    init(draft: ComposerDraft, editor: ComposerEditorController, isStreaming: Bool,
+         canSend: Bool = true, canStop: Bool = true, isBusy: Bool = false,
+         placeholder: String = String(localized: "询问 Agents"),
+         maximumEditorHeight: CGFloat, controls: ChatControlMetrics,
+         onSend: @escaping () -> Void, onStop: @escaping () -> Void, onOptions: @escaping () -> Void,
+         showsCommands: Bool = false, commandsActive: Bool = false,
+         onCommands: @escaping () -> Void = {}, onDraftChange: @escaping () -> Void = {},
+         credentials: @escaping @MainActor @Sendable () async throws -> V2SpeechCredentials = { throw ComposerSpeechFailure.unavailable },
+         voice: ComposerVoiceInput? = nil) {
+        _draft = Bindable(wrappedValue: draft)
+        self.editor = editor; self.isStreaming = isStreaming
+        self.canSend = canSend; self.canStop = canStop; self.isBusy = isBusy
+        self.placeholder = placeholder; self.maximumEditorHeight = maximumEditorHeight; self.controls = controls
+        self.onSend = onSend; self.onStop = onStop; self.onOptions = onOptions
+        self.showsCommands = showsCommands; self.commandsActive = commandsActive
+        self.onCommands = onCommands; self.onDraftChange = onDraftChange
+        _voice = State(initialValue: voice ?? ComposerVoiceInput(recognizer: ComposerSpeechRecognizer(credentials: credentials)))
+    }
 
     var body: some View {
         GlassEffectContainer(spacing: 12) {
@@ -132,13 +151,11 @@ struct ChatComposer: View {
     private func toggleVoice() {
         if voice.phase == .recording { voice.finish(); return }
         guard !voice.isActive, !draft.isComposing else { return }
-        // Read the keyboard locale/selection before dismissing it. Do not commit
-        // IME marked text on the user's behalf.
-        let language = editor.textView?.textInputMode?.primaryLanguage
-            ?? Locale.preferredLanguages.first ?? Locale.current.identifier
+        // Keep the selection before dismissing the editor. The cloud service
+        // recognizes Chinese and English independently of the keyboard locale.
         let selection = editor.textView?.selectedRange
         editor.finishEditing()
-        voice.start(draft: draft, locale: Locale(identifier: language), selection: selection)
+        voice.start(draft: draft, locale: Locale(identifier: "zh-CN"), selection: selection)
     }
 
     private var voiceStatus: some View {
@@ -163,7 +180,6 @@ struct ChatComposer: View {
         switch voice.phase {
         case .idle: ""
         case .preparing: String(localized: "正在准备语音输入…")
-        case .downloadingModel: String(localized: "正在下载语音模型…")
         case .recording: String(localized: "正在录音…")
         case .finishing: String(localized: "正在完成转写…")
         }

@@ -2,22 +2,25 @@ import Foundation
 import Observation
 
 nonisolated enum ComposerSpeechEvent: Sendable {
-    case downloadingModel
     case recording
+    case clearTranscript
     case transcript(text: String, start: Double, end: Double, isFinal: Bool)
     case failed(ComposerSpeechFailure)
 }
 
 nonisolated enum ComposerSpeechFailure: Error, Sendable {
-    case microphoneDenied, unsupportedLanguage, unavailable, modelDownload
+    case microphoneDenied, unavailable
+    case networkUnavailable, authenticationFailed, serviceUnavailable, rateLimited
     case audioUnavailable, recognitionFailed, interrupted, noSpeech
 
     var message: String {
         switch self {
         case .microphoneDenied: String(localized: "请在系统设置中允许麦克风访问后重试。")
-        case .unsupportedLanguage: String(localized: "当前输入语言不支持语音识别，请切换键盘语言或使用键盘听写。")
-        case .unavailable: String(localized: "此设备暂不支持应用内语音输入，请使用键盘听写。")
-        case .modelDownload: String(localized: "语音模型未能准备好，请联网后重试。")
+        case .unavailable: String(localized: "语音输入暂不可用，请稍后重试。")
+        case .networkUnavailable: String(localized: "无法连接语音服务，请检查网络后重试。")
+        case .authenticationFailed: String(localized: "登录已失效，请重新登录后使用语音输入。")
+        case .serviceUnavailable: String(localized: "服务器暂不支持语音输入，请稍后重试。")
+        case .rateLimited: String(localized: "语音输入请求过于频繁，请稍后重试。")
         case .audioUnavailable: String(localized: "麦克风暂不可用，请检查音频设备后重试。")
         case .recognitionFailed: String(localized: "语音识别失败，已保留识别出的文字，请重试。")
         case .interrupted: String(localized: "录音已中断，已保留识别出的文字。")
@@ -35,7 +38,7 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
 
 /// Owns one recording's draft snapshot. Speech never invokes a send action.
 @MainActor @Observable final class ComposerVoiceInput {
-    enum Phase { case idle, preparing, downloadingModel, recording, finishing }
+    enum Phase { case idle, preparing, recording, finishing }
     private(set) var phase: Phase = .idle
     var error: ComposerSpeechFailure?
     var isActive: Bool { phase != .idle }
@@ -115,10 +118,12 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
             interrupt(); return
         }
         switch event {
-        case .downloadingModel:
-            if phase == .preparing { phase = .downloadingModel }
         case .recording:
-            if phase == .preparing || phase == .downloadingModel { phase = .recording }
+            if phase == .preparing { phase = .recording }
+        case .clearTranscript:
+            segments = []
+            lastAppliedText = originalText
+            draft.text = originalText
         case let .transcript(text, start, end, isFinal):
             guard start.isFinite, end.isFinite, start >= 0, end > start,
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

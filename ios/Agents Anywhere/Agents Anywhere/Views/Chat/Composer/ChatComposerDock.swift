@@ -26,6 +26,7 @@ struct ChatComposerDock: View {
     var onApplySettings: () async -> Bool = { true }
     var applyError: () -> String? = { nil }
     var onDraftChange: () -> Void = {}
+    var credentials: @MainActor @Sendable () async throws -> V2SpeechCredentials = { throw ComposerSpeechFailure.unavailable }
 
     @State private var editor = ComposerEditorController()
     @State private var showsOptions = false
@@ -52,7 +53,7 @@ struct ChatComposerDock: View {
                 onOptions: { showsOptions = true },
                 showsCommands: sessionChat?.offersCommands == true, commandsActive: showsCommandMenu,
                 onCommands: { showsCommandMenu.toggle() },
-                onDraftChange: onDraftChange)
+                onDraftChange: onDraftChange, credentials: credentials)
         }
         .onChange(of: sessionChat?.optionsRequest) { _, _ in showsOptions = true }
         .frame(maxWidth: ChatControlMetrics.maximumContentWidth)

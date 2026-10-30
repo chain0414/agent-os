@@ -64,7 +64,11 @@ struct NewSessionView: View, Equatable {
                     isBusy: model.isCreating, isLoadingSettings: model.isPreparing,
                     onSend: { text in if let session = await model.create(text: text) { onCreated(session) } },
                     onApplySettings: { model.saveSelections(); return true },
-                    onDraftChange: { model.scheduleDraftSave() })
+                    onDraftChange: { model.scheduleDraftSave() },
+                    credentials: { @MainActor @Sendable [weak service = appState.nativeChatServices?.speech] in
+                        guard let service else { throw ComposerSpeechFailure.authenticationFailed }
+                        return try await service.credentials()
+                    })
                 }
                 .frame(maxWidth: ChatControlMetrics.maximumContentWidth).frame(maxWidth: .infinity)
             }

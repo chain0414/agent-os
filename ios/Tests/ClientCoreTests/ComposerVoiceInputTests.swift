@@ -3,6 +3,23 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct ComposerVoiceInputTests {
+    @Test func retractedCloudTranscriptRestoresOriginalSelectionAndReportsNoSpeech() async {
+        let engine = FakeComposerSpeechRecognizer()
+        let voice = ComposerVoiceInput(recognizer: engine)
+        let draft = ComposerDraft(); draft.text = "保留选中的原文"
+        voice.start(draft: draft, locale: .current, selection: NSRange(location: 0, length: 3))
+        await engine.waitForStart()
+        engine.emit(.transcript(text: "误识别", start: 0, end: 1, isFinal: false))
+        engine.emit(.clearTranscript)
+        #expect(draft.text == "保留选中的原文")
+        #expect(draft.isVoiceInputActive && !draft.canAttemptSend)
+        voice.finish()
+        await engine.waitForFinish()
+        engine.completeFinish()
+        await voice.waitUntilSettled()
+        #expect(draft.text == "保留选中的原文" && voice.error == .noSpeech)
+    }
+
     @Test func cancellationBeforeStartTaskRunsDoesNotCallRecognizer() async {
         let engine = FakeComposerSpeechRecognizer()
         let voice = ComposerVoiceInput(recognizer: engine)
