@@ -45,9 +45,9 @@ PNPM 11 若尚未把新本地归档纳入 store，可先使用同一个官方 CL
 
 实际 rc.3 的 Profile watcher 只在 bundles 选择改变时进行协调，改依赖版本或无效 touch 不能保证重载。本次尝试仅移除／恢复 AA bundle 后，Runtime 桥仍可读取目标，但 Onboarding manager lease 未恢复；已回滚完整旧版目录和原 Profile。**不要把这条 HMR 尝试作为已经成功验证的安装流程重复执行。** 单一 manager lease 也不能替代 Runtime／真实历史回填验证。
 
-可靠恢复路径是使用官方退出确认检查全部原生工作；只有确认无运行中、排队、后台或未知工作，才正常退出同一 Dev.app，完整替换 AA 制品后打开同一 App/Profile。未来定时任务在应用关闭期间暂停，重新打开后应验证原计划仍在。锁屏会阻断系统确认操作：必须等待用户解锁，不能绕过锁屏或强杀宿主。当前工作停在官方“应用关闭期间，定时任务不会运行”确认，旧 AA 目录及 Profile 已恢复，账号与原生日志未改。
+可靠恢复路径是使用官方退出确认检查全部原生工作；只有确认无运行中、排队、后台或未知工作，才正常退出同一 Dev.app，完整替换 AA 制品后打开同一 App/Profile。未来定时任务在应用关闭期间暂停，重新打开后应验证原计划仍在。锁屏会阻断系统确认操作，不能绕过锁屏或强杀宿主；若实际宿主已经退出，锁屏不妨碍已授权的文件更新和标准 `open`，此时无需再点击确认。必须在替换前立即复核全部精确 App／Host 进程不存在、原生持久化无未结束轮次且保护数据原状，防止隔夜重开或检查后的启动竞态。旧 AA 目录和 Profile 的恢复不代表宿主仍保持退出。
 
-本次工作区的受控入口为 `.local-dev/dsh-turn-timing/deployment/deploy-local.py --apply`（使用仓库 Server 虚拟环境运行）。它要求已经存在标准构建、同集合测试报告、本地归档报告和旧版回滚备份；只对精确目标执行权威历史同步，不发送消息或回应交互。
+本次工作区的正常冷启动入口为 `server/.venv/bin/python .local-dev/dsh-turn-timing/deployment/cold-start-reviewed.py --execute-after-official-quit`，从仓库根目录运行；仅在上述官方退出／进程与持久状态复核后执行。之前的 PNPM 尝试入口为 `.local-dev/dsh-turn-timing/deployment/deploy-local.py --apply`。它要求已经存在标准构建、同集合测试报告、本地归档报告和旧版回滚备份；只对精确目标执行权威历史同步，不发送消息或回应交互。
 
 ## 健康检查
 

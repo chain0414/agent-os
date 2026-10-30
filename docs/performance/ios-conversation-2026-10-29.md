@@ -209,4 +209,6 @@ DSH 宿主边界：本机当前运行 DeepSeek Harness Dev 0.2.1-rc.3，desktop 
 
 已确认当前 Dev.app 使用 desktop Profile，目标原生日志有两条完整 schedule，均有合法原生时间。官方 PNPM 安装被另一个既有插件的固定 Git 归档缓存缺失和下载超时阻塞，未改变其它依赖或关闭脚本保护。受控 HMR 尝试未使管理子服务闭环，已恢复旧 AA 2.1.0 完整目录、原 Profile 和锁文件；目标 Runtime 仍可读取，账号保护摘要及既有日志前缀保持。不能把管理 lease 缺失直接说成整个 Runtime 桥不可用。
 
-冷启动替换完整、已验证制品的脚本已准备；执行前确认 51 条 DSH 会话为空闲，官方退出框仅提示关闭期间定时任务暂停。但 Mac 实际 screenLocked=true、onConsole=false，确认点击被系统阻断，已停止事件注入并请求用户解锁。当前宿主未退出，新插件未生效，两条 Server 回填及正式 iPhone 的任务展开仍待验收；保留此边界，不能将前述合成入口测试视为真实任务恢复成功。构建、备份、锁屏回执和待执行冷启动脚本位于 `.local-dev/dsh-turn-timing/deployment/`；详细受控流程见 `dsh-bridge-next/DEPLOY.md`。
+冷启动替换完整、已验证制品的脚本已准备；当次执行前 51 条 DSH 投影显示空闲，官方退出框仅提示关闭期间定时任务暂停。辅助脚本曾据此阶段输出 screenLocked=true、onConsole=false 并请求用户解锁；2026-10-30 复核发现 onConsole 键名少一个 S，且将锁屏字段缺失错误地当成 true，因此撤回“该输出已证明实际锁屏”的结论。正确键是 `kCGSSessionOnConsoleKey`，必须区分字典不存在、字段未设置与明确锁定，不能用默认值制造锁屏事实。
+
+2026-10-30 接续时，原先宿主已退出，随后重新启动；官方退出检查及原生日志又发现一条新的「bug 修复」轮次正在执行，该任务的 bash 正在启动第二套 App／Host。已停止退出，改为只读监测原生轮次自然结束。此时 Server 投影仍可显示 idle，因此不能据此推断整个原生宿主无活动任务。新插件尚未生效，两条 Server 回填及正式 iPhone 的任务展开仍待验收；不能将前述合成入口测试视为真实任务恢复成功。构建、备份、原生状态回执和待执行冷启动脚本位于 `.local-dev/dsh-turn-timing/deployment/`；详细受控流程见 `dsh-bridge-next/DEPLOY.md`。
