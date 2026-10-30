@@ -53,7 +53,6 @@ struct ChatComposer: View {
         GlassEffectContainer(spacing: 12) {
             VStack(spacing: 0) {
                 if !draft.attachments.isEmpty { attachmentTray.disabled(voice.isActive) }
-                if voice.isActive { voiceStatus }
                 ComposerLayout(expanded: draft.isExpanded, maximumEditorHeight: maximumEditorHeight, controls: controls) {
                     Button(action: onOptions) {
                         AppSymbol("plus", size: 24)
@@ -95,15 +94,24 @@ struct ChatComposer: View {
                         Image(systemName: "mic")
                             .font(.system(size: 20))
                             .foregroundStyle(voice.isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                            .symbolEffect(.pulse, options: .repeating, isActive: voice.phase == .recording && !reduceMotion)
                             .frame(width: controls.touchTarget, height: controls.touchTarget)
+                            .background {
+                                if voice.isActive {
+                                    Circle().fill(.tint.opacity(0.14)).frame(width: 30, height: 30)
+                                    VoiceInputHalo(diameter: min(44, controls.touchTarget - 4))
+                                }
+                            }
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(voice.isActive ? voice.phase != .recording : isBusy || !draft.isValid || draft.isComposing)
-                    .accessibilityLabel(voice.phase == .recording ? String(localized: "正在录音…") : String(localized: "语音输入"))
+                    .accessibilityLabel(String(localized: "语音输入"))
+                    .accessibilityValue(voiceAccessibilityValue)
                     .accessibilityAddTraits(voice.isActive ? .isSelected : [])
                     .accessibilityHint(voice.phase == .recording ? String(localized: "再次点按结束录音，也可直接发送。") : String(localized: "转成文字后，确认再发送。"))
+                    .accessibilityActions {
+                        if voice.isActive { Button(String(localized: "取消录音"), action: cancelVoice) }
+                    }
                     .accessibilityIdentifier("chat.composer.voice")
 
                     if showsCommands {
@@ -202,25 +210,12 @@ struct ChatComposer: View {
         voice.start(draft: draft, locale: Locale(identifier: "zh-CN"), selection: selection)
     }
 
-    private var voiceStatus: some View {
-        HStack(spacing: 8) {
-            if voice.phase != .recording { ProgressView().controlSize(.small) }
-            Text(voiceStatusText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("chat.composer.voice.status")
-            Spacer(minLength: 4)
-            Button(String(localized: "取消录音")) { voiceSendTask?.cancel(); voice.cancel() }
-                .font(.footnote)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("chat.composer.voice.cancel")
-        }
-        .padding(.horizontal, controls.textInset)
-        .accessibilityElement(children: .contain)
+    private func cancelVoice() {
+        voiceSendTask?.cancel()
+        voice.cancel()
     }
 
-    private var voiceStatusText: String {
+    private var voiceAccessibilityValue: String {
         switch voice.phase {
         case .idle: ""
         case .preparing: String(localized: "正在准备语音输入…")
@@ -242,5 +237,35 @@ struct ChatComposer: View {
         .scrollIndicators(.hidden)
         .padding(.horizontal, 12)
         .padding(.top, 12)
+    }
+}
+
+/// Keep the repeating animation local so transcript updates don't drive layout.
+private struct VoiceInputHalo: View {
+    let diameter: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var expanded = false
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                ring.scaleEffect(0.85).opacity(0.5)
+            } else {
+                ring
+                    .scaleEffect(expanded ? 1 : 0.65)
+                    .opacity(expanded ? 0 : 0.85)
+                    .animation(.easeOut(duration: 1.35).repeatForever(autoreverses: false), value: expanded)
+                    .onAppear { expanded = true }
+                    .onDisappear { expanded = false }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var ring: some View {
+        Circle()
+            .stroke(.tint, lineWidth: 2)
+            .frame(width: diameter, height: diameter)
     }
 }
