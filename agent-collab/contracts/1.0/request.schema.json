@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Collab local RPC request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "method",
+    "params"
+  ],
+  "properties": {
+    "method": {
+      "enum": [
+        "health",
+        "registerSession",
+        "authorizeExecution",
+        "takeTask",
+        "startTask",
+        "completeTask",
+        "delegate",
+        "readTask",
+        "claimResult",
+        "ackResult",
+        "cancelTask",
+        "reconcileTask",
+        "reconcileDelivery"
+      ]
+    },
+    "params": {
+      "type": "object"
+    }
+  }
+}

@@ -23,6 +23,7 @@
 
 ### 会话创建与消息交付
 
+- 可以用独立协作扩展的验证脚本，在隔离原生会话中验证 DSH 与 Codex 的双向复核、异步回传及确认后编码；尚不支持直接接入桌面已有对话。（[dbb15f93](https://github.com/anywhere-labs/Agents-Anywhere/commit/dbb15f93)）
 - 修复接入 Codex 已有会话后，补入的旧消息出现在最新消息下方、历史消息交错或重排后顺序没有更新的问题；升级后同步会自动校准已有记录。（[#480](https://github.com/anywhere-labs/Agents-Anywhere/pull/480)）
 
 - DSH 原生定时任务的指令不再被同步器丢弃，并保留原生触发时间；Connector 支持接收新版插件补传的任务与耗时，其他内部注入来源继续过滤。（[da1093f9](https://github.com/anywhere-labs/Agents-Anywhere/commit/da1093f9)、[7dc87edc](https://github.com/anywhere-labs/Agents-Anywhere/commit/7dc87edc)）

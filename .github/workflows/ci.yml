@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      collab: ${{ steps.paths.outputs.collab }}
       plugin: ${{ steps.paths.outputs.plugin }}
       connector: ${{ steps.paths.outputs.connector }}
       server: ${{ steps.paths.outputs.server }}
@@ -50,6 +51,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
+          collab=false
           plugin=false
           connector=false
           server=false
@@ -58,6 +60,7 @@ jobs:
 
           run_everything() {
             echo "::notice::$1; running every check"
+            collab=true
             plugin=true
             connector=true
             server=true
@@ -79,6 +82,7 @@ jobs:
                 .github/workflows/*|.github/actions/*|contracts/*)
                   run_everything "shared file changed: $path"
                   ;;
+                agent-collab/*) collab=true ;;
                 dsh-bridge-next/*) plugin=true ;;
                 # Plugin integration tests run the Connector's DSH probe and the
                 # Server tests import the Connector package.
@@ -90,7 +94,7 @@ jobs:
             done < "$RUNNER_TEMP/changed-paths"
           fi
 
-          for scope in plugin connector server web desktop; do
+          for scope in collab plugin connector server web desktop; do
             echo "$scope=${!scope}" >> "$GITHUB_OUTPUT"
             echo "$scope: ${!scope}"
           done
@@ -269,3 +273,18 @@ jobs:
           corepack yarn renderer:typecheck
           corepack yarn workspace agents-anywhere-desktop-renderer protocol:check
           corepack yarn test:main
+
+  collab:
+    name: Independent Agent Collab
+    needs: changes
+    if: needs.changes.outputs.collab == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.2'
+      - name: Service and isolated package checks
+        working-directory: agent-collab
+        run: node scripts/check.mjs

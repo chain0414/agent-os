@@ -17,6 +17,7 @@ Agents Anywhere 是一个跨设备的 Agent 工作台。工作设备上的 **Con
 | `android/` | Android 客户端，见 `android/ARCHITECTURE.md` | Kotlin、Gradle、JDK 17 |
 | `ios/` | iOS / iPadOS 客户端，见 `ios/ARCHITECTURE.md` | Swift、Xcode |
 | `dsh-bridge-next/` | **当前** DSH 插件（npm 包，也随 DSH Desktop 分发） | TypeScript、Yarn |
+| `agent-collab/` | 独立发布的本机 Agent 协作扩展；规则见 `agent-collab/AGENTS.md` | Node.js、TypeScript、Yarn |
 | `contracts/` | 跨端契约与 fixtures，按 `<name>/<version>/` 组织 | JSON Schema / 文档 |
 | `docker/` | 自托管部署与本地数据库 compose | Docker Compose |
 | `docs/` | 使用、开发、API、Runtime 协议、发布说明 | — |
@@ -34,6 +35,7 @@ Agents Anywhere 是一个跨设备的 Agent 工作台。工作设备上的 **Con
 - 仓库根目录**没有**统一的构建命令，每个子项目单独安装依赖、单独检查。
 - **不提交 lockfile**（`yarn.lock`、`uv.lock`、`package-lock.json` 等已被 `.gitignore` 忽略），不要把它们加回来。
 - 只运行和修改有关的 headless 检查：
+  - Agent Collab：`cd agent-collab && node scripts/check.mjs`（无需 AA 数据库；宿主探针另见组件说明）
   - Server：`cd server && uv run ruff check . --exclude .venv && uv run pytest -q`（需要 `AGENT_SERVER_TEST_DB_URL`；`tests/test_connector_pipeline.py` 会导入 Connector 包，先执行一次 `uv pip install --python .venv/bin/python ../connector`）
   - Connector：`cd connector && uv run ruff check connector tests && uv run pytest -q`
   - Web：`cd web-next && yarn test && yarn typecheck && yarn protocol:check`
@@ -96,3 +98,7 @@ Agents Anywhere 是一个跨设备的 Agent 工作台。工作设备上的 **Con
 
 - 面向用户的文档以中文为主；README 有中英两个版本（`README.md` / `README.en.md` / `README.zh-CN.md`），修改其中一个时要同步其他版本。
 - 功能或接口变化后，更新对应的 README、`docs/` 页面、发布说明或 CHANGELOG.md，不要让文档描述已经不存在的行为。
+
+## 独立协作扩展
+
+`agent-collab/` 独立构建与发布，私有本机协议以其 `contracts/` 为单一主源，契约先于实现；不参与现有AA各端版本对齐。涉及AA公开API或Runtime契约时仍适用根契约和跨端升版规则。服务不得运行时导入Connector或旧DSH插件源码。

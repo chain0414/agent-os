@@ -1,0 +1,27 @@
+{
+  "name": "@agents-anywhere/agent-collab-service",
+  "version": "0.1.0",
+  "description": "Independent local collaboration broker for Codex and DSH",
+  "type": "module",
+  "exports": {
+    ".": "./lib/broker.js",
+    "./client": "./lib/client.js",
+    "./server": "./lib/server.js"
+  },
+  "bin": {
+    "agent-collab": "bin/agent-collab.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs"
+  }
+}
