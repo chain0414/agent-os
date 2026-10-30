@@ -30,3 +30,9 @@ ASR 使用 Apple `SpeechAnalyzer`，优先设备端 `SpeechTranscriber`，同语
 ## 复核材料
 
 源码测试：`ios/Tests/ClientCoreTests/ComposerVoiceInputTests.swift`、`ios/Tests/VoiceInputProbe.swift`、`ios/Tests/VoiceInputLocalizationProbe.swift`；运行说明见 `ios/NATIVE_CHAT.md` 的「语音输入」。本地构建日志与临时探针位于 Git 忽略的 `ios/.build/voice-*`，音频/协调探针的重跑入口为 `ios/.build/voice-engine-probes/README.md`。这些路径属于本轮工作区，不随提交发布。
+
+## 2026-10-30 真机安装更新
+
+Wayne 授权将此分支安装到自己的 iPhone 测试。已同步 Debug/Release 签名团队为公司团队 `67JNSQB28X`，使用现有 Xcode/Keychain 中的 ying zhang 开发证书签名；未变更 Bundle ID、发布归属或执行 TestFlight/App Store 上传。
+
+完整签名 Debug 构建通过，产物为 `com.agentsanywhere.app`，版本 `2.1.0`、构建 `11`；验证了签名有效、团队与 application identifier 一致、开发描述文件包含目标 iPhone、麦克风用途说明存在。通过 USB 更新安装到「Maze-13promax」（iOS 27.0.1），安装命令成功，随后启动成功。真实语音输入、中文准确率、首次模型下载及离线识别交由 Wayne 在该机体验，本次安装与启动成功不代表这些能力已经验收。
