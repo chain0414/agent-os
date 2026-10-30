@@ -48,12 +48,19 @@ Files: AGENTS.md, docs/development.md, docs/versioning.md, .github/workflows/ci.
 ### Task 4: 真实纵向协作
 
 Files: packages/service/适配器、两端入口及tests/integration/。
-- [ ] A1证明双端真实来源，A2证明异步生成结果来源，A3证明受限执行与精确取消。
-- [ ] 对每项缺失能力记录具体接口/版本阻塞，不改用user消息冒充回传。
-- [ ] 能力成立后真实DSH复核→Codex编码及反向复核，再验证断线、并装与多入口单服务。
+- [x] A1双端原生来源与A2异步模型消费已真实验证；A3受限执行通过，安全运行中取消仍保持关闭。
+- [x] 已记录接口版本、DSH模型role与来源差异、桌面UI及原生恢复边界，未用普通prompt伪装生成来源。
+- [x] 真实DSH复核→回传→测试确认→Codex编码及反向双来源复核已通过。
+- [ ] 后续产品化：桌面既有owner、真实原生断线恢复、并装与日常安装入口。
 
 阶段完成以可复查证据为准；前三项的headless通过不代表第四项完成。
 
 ## 第一阶段证据
 
 2026-10-30：统一检查26/26通过，服务源码strict TypeScript检查通过；脱离checkout的服务安装与DSH导入通过。真实原生双向协作尚未启用，详见[验证记录](../evidence/2026-10-30-agent-collab.md)。远程CI未执行，Task 4保持未完成。
+
+## 原生阶段证据
+
+2026-10-30：完整真实模型suite返回passed；代码与双向身份、异步回传、测试确认交接已验证。范围与模型原文见[验证摘要](../evidence/2026-10-30-agent-collab-native-summary.md)，不将测试驱动器确认写成人工审核。
+
+最终本地检查：48/48无模型测试通过；独立复核的native测试18/18通过。真实模型suite单独执行成功，未将它纳入默认CI。

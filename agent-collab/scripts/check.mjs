@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-const roots = ["packages/service/test", "tests/installation", "tests/probes"];
+const roots = ["packages/service/test", "tests/installation", "tests/probes", "tests/native"];
 const tests = [];
 for (const root of roots) {
   const before = tests.length;
