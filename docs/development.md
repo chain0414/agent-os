@@ -2,6 +2,8 @@
 
 ## 分支与环境
 
+本 Fork 名为 `agent-os`，`origin` 指向 `chain0414/agent-os`，`upstream` 指向 `anywhere-labs/Agents-Anywhere`。`main` 是本 Fork 的长期演进主线，默认向 `origin` 推送；上游更新按需在独立同步分支验证后合入，不自动追随上游发布。已推送的 iOS、语音输入与协作插件开发分支保留作为初始备份，新开发继续从本 Fork 的 `main` 创建短期分支。
+
 `main` 是 v2 主线，新功能从最新 `main` 创建分支，分支名为 `<type>/<domain>/<topic>`（type 如 `feat`、`fix`、`docs`；domain 缩写为 `fe`、`be`、`con`、`dsk`、`apk`、`ios`、`dsh`、`docs`，多个 domain 用 `+` 连接），如 `feat/con+be/<topic>`。`v2` 保留用于发布过渡，不再把旧 `main` 的 API 和数据库假定套用到当前主线。历史资料见[升级指南](upgrading.md)。
 
 使用 Python 3.12+、uv、Node.js 22、Corepack/Yarn。Docker 源码启动器需要 Docker Compose；Android 需要 JDK 17 与 Android SDK，iOS 需要 Xcode。各子项目独立安装依赖，不在仓库根目录运行一个假设存在的总构建命令。

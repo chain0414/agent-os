@@ -1,3 +1,7 @@
+# agent-os
+
+Wayne 独立维护的 [Agents Anywhere](https://github.com/anywhere-labs/Agents-Anywhere) Fork，主仓库为 [chain0414/agent-os](https://github.com/chain0414/agent-os)。下方官网、云服务与下载入口属于上游项目；本 Fork 尚未发布独立安装包，应用名称与包标识沿用原项目。
+
 <p align="center">
   <a href="https://www.agents-anywhere.com"><img src="docs/images/readme-hero-zh.webp" alt="Agents Anywhere：跨设备的开源 Agent 工作台。支持 Codex、Claude Code 和 DeepSeek Harness，更多 Agent 即将支持。" width="100%"></a>
 </p>

@@ -1,3 +1,7 @@
+# agent-os
+
+An independently maintained fork of [Agents Anywhere](https://github.com/anywhere-labs/Agents-Anywhere) by Wayne, hosted at [chain0414/agent-os](https://github.com/chain0414/agent-os). The website, cloud service and downloads below belong to the upstream project. This fork has no separate installer release yet; application names and package identifiers retain their original values.
+
 <p align="center">
   <a href="https://www.agents-anywhere.com/en"><img src="docs/images/readme-hero-en.webp" alt="Agents Anywhere: an agent workbench across your devices. Supports Codex, Claude Code and DeepSeek Harness, with more agents coming soon." width="100%"></a>
 </p>

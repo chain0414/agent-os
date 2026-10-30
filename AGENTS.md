@@ -1,5 +1,7 @@
 # Agents Anywhere — Agent 工作指南
 
+本仓库是 Wayne 独立维护的 `agent-os` Fork：`origin` 为 `chain0414/agent-os`，`upstream` 为 `anywhere-labs/Agents-Anywhere`。本文件下述 `main` 均指本 Fork 的主线；默认向 `origin` 推送，上游更新按需集成。仓库更名不代表变更应用包标识、发布归属或外部服务地址。
+
 本文件写给在本仓库中工作的编码 Agent（Codex、Claude Code 等）。面向人的说明见 [docs/README.md](docs/README.md)；本文件只保留 Agent 做出正确修改所需的内容。
 
 ## 项目是什么
