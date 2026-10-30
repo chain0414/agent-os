@@ -3,6 +3,96 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct ComposerVoiceInputTests {
+    @Test func sendDuringRecordingWaitsForFinalWords() async {
+        let engine = FakeComposerSpeechRecognizer()
+        let voice = ComposerVoiceInput(recognizer: engine)
+        let draft = ComposerDraft()
+        voice.start(draft: draft, locale: .current)
+        await engine.waitForStart()
+        engine.emit(.transcript(text: "请修改", start: 0, end: 1, isFinal: false))
+        let send = Task { await voice.finishForSend(draft: draft) }
+        await engine.waitForFinish()
+        #expect(voice.phase == .finishing && !draft.canAttemptSend)
+        engine.emit(.transcript(text: "请修改登录页。", start: 0, end: 2, isFinal: true))
+        engine.completeFinish()
+        #expect(await send.value == "请修改登录页。")
+        #expect(draft.canAttemptSend && engine.finishCount == 1)
+        #expect(await voice.finishForSend(draft: draft) == nil)
+    }
+
+    @Test func sendBeforeFirstTranscriptStillCollectsFinalResult() async {
+        let engine = FakeComposerSpeechRecognizer()
+        let voice = ComposerVoiceInput(recognizer: engine)
+        let draft = ComposerDraft()
+        voice.start(draft: draft, locale: .current)
+        await engine.waitForStart()
+        let send = Task { await voice.finishForSend(draft: draft) }
+        await engine.waitForFinish()
+        engine.emit(.transcript(text: "稍后返回的文字。", start: 0, end: 2, isFinal: true))
+        engine.completeFinish()
+        #expect(await send.value == "稍后返回的文字。")
+    }
+
+    @Test func canceledOrFailedFinalizationDoesNotAuthorizeSend() async {
+        for failure in [false, true] {
+            let engine = FakeComposerSpeechRecognizer()
+            let voice = ComposerVoiceInput(recognizer: engine)
+            let draft = ComposerDraft(); draft.text = "原稿"
+            voice.start(draft: draft, locale: .current)
+            await engine.waitForStart()
+            engine.emit(.transcript(text: "部分转写", start: 0, end: 1, isFinal: false))
+            let send = Task { await voice.finishForSend(draft: draft) }
+            await engine.waitForFinish()
+            if failure { engine.emit(.failed(.networkUnavailable)) } else { voice.cancel() }
+            #expect(await send.value == nil)
+            #expect(draft.text == (failure ? "原稿部分转写" : "原稿"))
+        }
+    }
+
+    @Test func emptyFinalCannotSendExistingDraft() async {
+        let engine = FakeComposerSpeechRecognizer()
+        let voice = ComposerVoiceInput(recognizer: engine)
+        let draft = ComposerDraft(); draft.text = "原稿"
+        voice.start(draft: draft, locale: .current)
+        await engine.waitForStart()
+        let send = Task { await voice.finishForSend(draft: draft) }
+        await engine.waitForFinish()
+        engine.completeFinish()
+        #expect(await send.value == nil)
+        #expect(draft.text == "原稿" && voice.error == .noSpeech)
+    }
+
+    @Test func changedDraftAndCanceledSendTaskCannotSend() async {
+        for cancelTask in [false, true] {
+            let engine = FakeComposerSpeechRecognizer()
+            let voice = ComposerVoiceInput(recognizer: engine)
+            let draft = ComposerDraft()
+            voice.start(draft: draft, locale: .current)
+            await engine.waitForStart()
+            engine.emit(.transcript(text: "部分转写", start: 0, end: 1, isFinal: false))
+            let send = Task { await voice.finishForSend(draft: draft) }
+            await engine.waitForFinish()
+            if cancelTask { send.cancel() } else { draft.invalidate() }
+            engine.completeFinish()
+            #expect(await send.value == nil)
+        }
+    }
+
+    @Test func secondSendRequestCannotJoinPendingFinalization() async {
+        let engine = FakeComposerSpeechRecognizer()
+        let voice = ComposerVoiceInput(recognizer: engine)
+        let draft = ComposerDraft()
+        voice.start(draft: draft, locale: .current)
+        await engine.waitForStart()
+        engine.emit(.transcript(text: "最终文字", start: 0, end: 1, isFinal: true))
+        let send = Task { await voice.finishForSend(draft: draft) }
+        await engine.waitForFinish()
+        #expect(await voice.finishForSend(draft: draft) == nil)
+        engine.completeFinish()
+        #expect(await send.value == "最终文字")
+        #expect(engine.finishCount == 1)
+    }
+
     @Test func retractedCloudTranscriptRestoresOriginalSelectionAndReportsNoSpeech() async {
         let engine = FakeComposerSpeechRecognizer()
         let voice = ComposerVoiceInput(recognizer: engine)

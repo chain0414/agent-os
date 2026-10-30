@@ -7,7 +7,7 @@ let product = URL(fileURLWithPath: CommandLine.arguments[1])
 let catalogs = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .appendingPathComponent("Agents Anywhere/Agents Anywhere/Resources/Localization")
 let keys = [
-    "语音输入", "结束录音", "取消录音", "转成文字后，确认再发送。", "打开设置",
+    "语音输入", "取消录音", "转成文字后，确认再发送。", "再次点按结束录音，也可直接发送。", "打开设置",
     "正在准备语音输入…", "正在录音…", "正在完成转写…",
     "请在系统设置中允许麦克风访问后重试。",
     "语音输入暂不可用，请稍后重试。",

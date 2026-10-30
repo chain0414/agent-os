@@ -58,7 +58,7 @@ struct NewSessionView: View, Equatable {
                         .padding(.bottom, 6)
                 ChatComposerDock(draft: model.draft, settings: model.settings,
                     maximumEditorHeight: min(160, max(72, geometry.size.height * 0.30)), controls: controls,
-                    canSend: model.canCreate, canAttach: model.canAttach && model.prepared != nil,
+                    canSend: model.canSubmitDraft, canAttach: model.canAttach && model.prepared != nil,
                     canSelectModel: model.prepared?.capabilities.allows("catalog.model") == true,
                     canSelectPermission: model.prepared?.capabilities.allows("catalog.permission") == true,
                     isBusy: model.isCreating, isLoadingSettings: model.isPreparing,

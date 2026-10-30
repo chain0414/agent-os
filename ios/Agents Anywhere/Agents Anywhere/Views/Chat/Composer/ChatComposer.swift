@@ -26,6 +26,8 @@ struct ChatComposer: View {
     @Environment(\.scenePhase) private var scenePhase
     @Namespace private var glass
     @State var voice: ComposerVoiceInput
+    @State private var voiceSendTask: Task<Void, Never>?
+    @State private var isSendingVoice = false
 
     init(draft: ComposerDraft, editor: ComposerEditorController, isStreaming: Bool,
          canSend: Bool = true, canStop: Bool = true, isBusy: Bool = false,
@@ -78,27 +80,29 @@ struct ChatComposer: View {
                             .contentTransition(.symbolEffect(.replace))
                             .foregroundStyle(AppTheme.primaryControlForeground(colorScheme))
                             .frame(width: controls.sendDiameter, height: controls.sendDiameter)
-                            .background(AppTheme.primaryControlBackground(colorScheme).opacity((isStreaming ? canStop : canSend && draft.canAttemptSend) && !isBusy ? 1 : 0.42), in: Circle())
+                            .background(AppTheme.primaryControlBackground(colorScheme).opacity((isStreaming ? canStop && !isBusy : canSendNow) ? 1 : 0.42), in: Circle())
                             .frame(width: controls.touchTarget, height: controls.touchTarget)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(isBusy || (isStreaming ? !canStop : !canSend || !draft.canAttemptSend))
+                    .disabled(isStreaming ? isBusy || !canStop : !canSendNow)
                     .accessibilityLabel(isStreaming ? String(localized: "停止生成") : String(localized: "发送消息"))
                     .accessibilityHint(draft.isComposing ? String(localized: "请先确认输入法候选文字") : "")
                     .accessibilityIdentifier("chat.composer.send")
 
                     Button(action: toggleVoice) {
-                        Image(systemName: voice.phase == .recording ? "stop.circle.fill" : "mic")
+                        Image(systemName: "mic")
                             .font(.system(size: 20))
-                            .foregroundStyle(voice.isActive ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                            .foregroundStyle(voice.isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .symbolEffect(.pulse, options: .repeating, isActive: voice.phase == .recording && !reduceMotion)
                             .frame(width: controls.touchTarget, height: controls.touchTarget)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(voice.isActive ? voice.phase != .recording : isBusy || !draft.isValid || draft.isComposing)
-                    .accessibilityLabel(voice.phase == .recording ? String(localized: "结束录音") : String(localized: "语音输入"))
-                    .accessibilityHint(String(localized: "转成文字后，确认再发送。"))
+                    .accessibilityLabel(voice.phase == .recording ? String(localized: "正在录音…") : String(localized: "语音输入"))
+                    .accessibilityAddTraits(voice.isActive ? .isSelected : [])
+                    .accessibilityHint(voice.phase == .recording ? String(localized: "再次点按结束录音，也可直接发送。") : String(localized: "转成文字后，确认再发送。"))
                     .accessibilityIdentifier("chat.composer.voice")
 
                     if showsCommands {
@@ -128,11 +132,14 @@ struct ChatComposer: View {
         // the draft from the page root re-evaluated the whole conversation.
         .onChange(of: draft.text) { _, _ in onDraftChange() }
         .onChange(of: draft.attachments) { _, _ in onDraftChange() }
-        .onChange(of: ObjectIdentifier(draft)) { _, _ in voice.interrupt() }
-        .onChange(of: draft.isValid) { _, valid in if !valid { voice.interrupt() } }
-        .onChange(of: draft.isVoiceInputActive) { _, active in if !active { voice.interrupt() } }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { voice.interrupt() } }
-        .onDisappear { voice.interrupt() }
+        .onChange(of: ObjectIdentifier(draft)) { _, _ in interruptVoice() }
+        .onChange(of: draft.isValid) { _, valid in if !valid { interruptVoice() } }
+        .onChange(of: draft.isVoiceInputActive) { _, active in if !active && voice.isActive { interruptVoice() } }
+        .onChange(of: canSend) { _, allowed in if !allowed && isSendingVoice { interruptVoice() } }
+        .onChange(of: isBusy) { _, busy in if busy && isSendingVoice { interruptVoice() } }
+        .onChange(of: isStreaming) { _, streaming in if streaming && isSendingVoice { interruptVoice() } }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { interruptVoice() } }
+        .onDisappear { interruptVoice() }
         .alert(String(localized: "语音输入"), isPresented: Binding(get: { voice.error != nil }, set: { if !$0 { voice.error = nil } })) {
             if voice.error == .microphoneDenied {
                 Button(String(localized: "打开设置")) {
@@ -143,9 +150,27 @@ struct ChatComposer: View {
         } message: { Text(voice.error?.message ?? "") }
     }
 
+    private var canSendNow: Bool {
+        !isBusy && !isSendingVoice && canSend && draft.isValid && !draft.isComposing
+            && (voice.phase == .recording || (!voice.isActive && draft.canAttemptSend))
+    }
+
     private func sendIfReady() {
-        guard !voice.isActive, !draft.isVoiceInputActive else { return }
-        onSend()
+        guard !isStreaming, canSendNow else { return }
+        guard voice.phase == .recording else { onSend(); return }
+        isSendingVoice = true
+        let currentDraft = draft
+        voiceSendTask = Task { @MainActor in
+            defer { isSendingVoice = false; voiceSendTask = nil }
+            guard let text = await voice.finishForSend(draft: currentDraft), !Task.isCancelled,
+                  editor.prepareVoiceTextForSend(text, draft: currentDraft) else { return }
+            onSend()
+        }
+    }
+
+    private func interruptVoice() {
+        voiceSendTask?.cancel()
+        voice.interrupt()
     }
 
     private func toggleVoice() {
@@ -167,7 +192,7 @@ struct ChatComposer: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("chat.composer.voice.status")
             Spacer(minLength: 4)
-            Button(String(localized: "取消录音")) { voice.cancel() }
+            Button(String(localized: "取消录音")) { voiceSendTask?.cancel(); voice.cancel() }
                 .font(.footnote)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("chat.composer.voice.cancel")

@@ -16395,6 +16395,23 @@
           }
         }
       }
+    },
+    "再次点按结束录音，也可直接发送。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap again to finish recording, or send directly."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次点按结束录音，也可直接发送。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

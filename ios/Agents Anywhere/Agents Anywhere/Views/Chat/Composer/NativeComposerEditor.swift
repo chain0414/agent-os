@@ -14,23 +14,32 @@ final class ComposerEditorController {
         synchronize()
     }
 
+    /// The final ASR callback can arrive before SwiftUI updates the UITextView.
+    /// Bring native text forward before the normal send path reads it back.
+    func prepareVoiceTextForSend(_ text: String, draft expectedDraft: ComposerDraft) -> Bool {
+        guard draft === expectedDraft, expectedDraft.isValid, expectedDraft.canAttemptSend,
+              expectedDraft.text == text, textView?.markedTextRange == nil else { return false }
+        if let textView { textView.text = text }
+        return true
+    }
+
     /// Check native marked text before ending editing. unmarkText() only removes
     /// the mark; it cannot select the user's intended Chinese candidate.
     func committedTextForSend() async -> String? {
-        guard draft?.isVoiceInputActive != true else { return nil }
+        guard draft?.isValid == true, draft?.isVoiceInputActive != true else { return nil }
         guard let textView else { return draft?.isComposing == false ? draft?.text : nil }
         guard textView.markedTextRange == nil else { synchronize(); return nil }
         let originalDraft = draft
         textView.resignFirstResponder()
         await Task.yield()
-        guard !Task.isCancelled, draft === originalDraft, draft?.isVoiceInputActive != true,
+        guard !Task.isCancelled, draft === originalDraft, draft?.isValid == true, draft?.isVoiceInputActive != true,
               textView.markedTextRange == nil else { return nil }
         synchronize()
         return textView.text ?? ""
     }
 
     func synchronize() {
-        guard let textView, let draft, draft.isValid else { return }
+        guard let textView, let draft, draft.isValid, !draft.isVoiceInputActive else { return }
         if draft.text != textView.text { draft.text = textView.text ?? "" }
         draft.isComposing = textView.markedTextRange != nil
         draft.isFocused = textView.isFirstResponder

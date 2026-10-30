@@ -44,7 +44,7 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
     var isActive: Bool { phase != .idle }
 
     @ObservationIgnored private let recognizer: any ComposerSpeechRecognizing
-    @ObservationIgnored private var operation: Task<Void, Never>?
+    @ObservationIgnored private var operation: Task<Bool, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private weak var draft: ComposerDraft?
     @ObservationIgnored private var originalText = ""
@@ -76,15 +76,16 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
         segments = []; error = nil; phase = .preparing
         draft.isVoiceInputActive = true
         operation = Task { [weak self] in
-            guard let self, !Task.isCancelled, generation == current, isActive else { return }
+            guard let self, !Task.isCancelled, generation == current, isActive else { return false }
             do {
                 try await recognizer.start(locale: locale) { [weak self] event in
                     self?.receive(event, generation: current)
                 }
             } catch {
-                guard generation == current, isActive else { return }
+                guard generation == current, isActive else { return false }
                 complete(error: (error as? ComposerSpeechFailure) ?? .recognitionFailed)
             }
+            return false
         }
     }
 
@@ -93,16 +94,35 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
         phase = .finishing
         let current = generation
         operation = Task { [weak self] in
-            guard let self, !Task.isCancelled, generation == current, isActive else { return }
+            guard let self, !Task.isCancelled, generation == current, isActive else { return false }
             do {
                 try await recognizer.finish()
-                guard generation == current, isActive else { return }
-                complete(error: segments.isEmpty ? .noSpeech : nil)
+                guard generation == current, isActive else { return false }
+                guard let draft, draft.isValid, draft.isVoiceInputActive, draft.text == lastAppliedText else {
+                    interrupt(); return false
+                }
+                let hasSpeech = !segments.isEmpty
+                complete(error: hasSpeech ? nil : .noSpeech)
+                return hasSpeech
             } catch {
-                guard generation == current, isActive else { return }
+                guard generation == current, isActive else { return false }
                 complete(error: (error as? ComposerSpeechFailure) ?? .recognitionFailed)
+                return false
             }
         }
+    }
+
+    /// A send tap owns this one recording's finalization. Cancellation, failure,
+    /// another recording or a replaced draft cannot authorize a later send.
+    func finishForSend(draft expectedDraft: ComposerDraft) async -> String? {
+        guard !Task.isCancelled, phase == .recording, draft === expectedDraft else { return nil }
+        let current = generation
+        finish()
+        let succeeded = await operation?.value == true
+        guard succeeded, !Task.isCancelled, generation == current + 1, phase == .idle,
+              expectedDraft.isValid, expectedDraft.canAttemptSend,
+              expectedDraft.text == lastAppliedText else { return nil }
+        return expectedDraft.text
     }
 
     func cancel() { end(restoreOriginal: true) }
@@ -110,7 +130,7 @@ nonisolated enum ComposerSpeechFailure: Error, Sendable {
     /// Leaving the page/backgrounding keeps the already visible transcription.
     func interrupt() { end(restoreOriginal: false) }
 
-    func waitUntilSettled() async { await operation?.value }
+    func waitUntilSettled() async { _ = await operation?.value }
 
     private func receive(_ event: ComposerSpeechEvent, generation current: Int) {
         guard generation == current, isActive else { return }

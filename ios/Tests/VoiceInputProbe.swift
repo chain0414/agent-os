@@ -30,12 +30,24 @@ struct AppSymbol: View {
             return
         }
         onEvent(.recording)
-        onEvent(.transcript(text: "请检查登录页面，保留深色主题。", start: 0, end: 3, isFinal: false))
+        if scenario != "empty-recording" {
+            onEvent(.transcript(text: "请检查登录页面，保留深色主题。", start: 0, end: 3, isFinal: false))
+        }
     }
     func finish() async throws {
-        if scenario == "finishing" { await withCheckedContinuation { pending = $0 } }
+        if scenario == "finishing" || scenario == "send-finishing" {
+            await withCheckedContinuation { pending = $0 }
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        try Task.checkCancellation()
+        switch scenario {
+        case "final-failure": throw ComposerSpeechFailure.recognitionFailed
+        case "no-speech": callback?(.clearTranscript)
+        default:
+            callback?(.transcript(text: "请修复登录页面的输入校验，保留深色主题并补充回归测试。", start: 0, end: 4, isFinal: true))
+        }
     }
-    func cancel() { pending?.resume(); pending = nil }
+    func cancel() { pending?.resume(); pending = nil; callback = nil }
 }
 
 @main struct VoiceInputProbeApp: App {
@@ -49,6 +61,7 @@ struct AppSymbol: View {
     @State private var engine = ProbeSpeechRecognizer()
     @State private var voice: ComposerVoiceInput
     @State private var sendCount = 0
+    @State private var lastSentText: String?
 
     init() {
         let scenario = ProcessInfo.processInfo.arguments.last ?? "idle"
@@ -65,10 +78,20 @@ struct AppSymbol: View {
             Spacer()
             Text("已发送：\(sendCount)")
                 .accessibilityIdentifier("voice.probe.sendCount")
+            Text(verbatim: lastSentText ?? "尚未发送文字")
+                .accessibilityIdentifier("voice.probe.sentText")
             ChatComposer(draft: draft, editor: editor, isStreaming: false,
-                canSend: scenario != "empty-new-session" || draft.hasSendableContent,
+                canSend: scenario != "disabled-target",
                 maximumEditorHeight: 160, controls: ChatControlMetrics(bodyLineHeight: scenario == "large" ? 40 : 22),
-                onSend: { sendCount += 1 }, onStop: {}, onOptions: {},
+                onSend: {
+                    let sendingDraft = draft
+                    Task { @MainActor in
+                        guard let text = await editor.committedTextForSend(),
+                              draft === sendingDraft, sendingDraft.isValid else { return }
+                        lastSentText = text
+                        sendCount += 1
+                    }
+                }, onStop: {}, onOptions: {},
                 showsCommands: true, voice: voice)
                 .frame(maxWidth: scenario == "narrow" ? 320 : .infinity)
         }
@@ -76,8 +99,9 @@ struct AppSymbol: View {
         .environment(\.dynamicTypeSize, scenario == "large" ? .accessibility2 : .large)
         .task {
             switch scenario {
-            case "recording", "finishing", "preparing", "large", "narrow":
-                draft.text = "原稿："
+            case "recording", "finishing", "preparing", "large", "narrow", "final-revision", "final-failure", "no-speech",
+                 "send-finishing", "empty-recording", "disabled-target":
+                draft.text = scenario == "empty-recording" ? "" : "原稿："
                 voice.start(draft: draft, locale: Locale(identifier: "zh-CN"))
                 await voice.waitUntilSettled()
                 if scenario == "finishing" { voice.finish() }
