@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ChatComposer: View {
+    private static let voiceInputColor = Color(red: 0.4, green: 0.7, blue: 1)
     @Bindable var draft: ComposerDraft
     let editor: ComposerEditorController
     let isStreaming: Bool
@@ -75,30 +76,30 @@ struct ChatComposer: View {
                         NativeComposerEditor(draft: draft, controller: editor, maximumHeight: maximumEditorHeight, onCommandSend: sendIfReady)
                     }
 
-                    Button(action: isStreaming ? onStop : sendIfReady) {
-                        AppSymbol(isStreaming ? "stop.fill" : "arrow.up", size: isStreaming ? 13 : 18)
+                    Button(action: showsStopControl ? onStop : sendIfReady) {
+                        AppSymbol(showsStopControl ? "stop.fill" : "arrow.up", size: showsStopControl ? 13 : 18)
                             .contentTransition(.symbolEffect(.replace))
                             .foregroundStyle(AppTheme.primaryControlForeground(colorScheme))
                             .frame(width: controls.sendDiameter, height: controls.sendDiameter)
-                            .background(AppTheme.primaryControlBackground(colorScheme).opacity((isStreaming ? canStop && !isBusy : canSendNow) ? 1 : 0.42), in: Circle())
+                            .background(AppTheme.primaryControlBackground(colorScheme).opacity((showsStopControl ? canStop && !isBusy : canSendNow) ? 1 : 0.42), in: Circle())
                             .frame(width: controls.touchTarget, height: controls.touchTarget)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(isStreaming ? isBusy || !canStop : !canSendNow)
-                    .accessibilityLabel(isStreaming ? String(localized: "停止生成") : String(localized: "发送消息"))
+                    .disabled(showsStopControl ? isBusy || !canStop : !canSendNow)
+                    .accessibilityLabel(showsStopControl ? String(localized: "停止生成") : String(localized: "发送消息"))
                     .accessibilityHint(draft.isComposing ? String(localized: "请先确认输入法候选文字") : "")
                     .accessibilityIdentifier("chat.composer.send")
 
                     Button(action: toggleVoice) {
                         Image(systemName: "mic")
                             .font(.system(size: 20))
-                            .foregroundStyle(voice.isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .foregroundStyle(voice.isActive ? Self.voiceInputColor : Color.secondary)
                             .frame(width: controls.touchTarget, height: controls.touchTarget)
                             .background {
                                 if voice.isActive {
-                                    Circle().fill(.tint.opacity(0.14)).frame(width: 30, height: 30)
-                                    VoiceInputHalo(diameter: min(44, controls.touchTarget - 4))
+                                    Circle().fill(Self.voiceInputColor.opacity(0.14)).frame(width: 30, height: 30)
+                                    VoiceInputHalo(color: Self.voiceInputColor, diameter: min(44, controls.touchTarget - 4))
                                 }
                             }
                             .contentShape(Circle())
@@ -164,7 +165,6 @@ struct ChatComposer: View {
         .onChange(of: draft.isVoiceInputActive) { _, active in if !active && voice.isActive { interruptVoice() } }
         .onChange(of: canSend) { _, allowed in if !allowed && isSendingVoice { interruptVoice() } }
         .onChange(of: isBusy) { _, busy in if busy && isSendingVoice { interruptVoice() } }
-        .onChange(of: isStreaming) { _, streaming in if streaming && isSendingVoice { interruptVoice() } }
         .onChange(of: scenePhase) { _, phase in if phase == .background { interruptVoice() } }
         .onDisappear { interruptVoice() }
         .alert(String(localized: "语音输入"), isPresented: Binding(get: { voice.error != nil }, set: { if !$0 { voice.error = nil } })) {
@@ -177,13 +177,15 @@ struct ChatComposer: View {
         } message: { Text(voice.error?.message ?? "") }
     }
 
+    private var showsStopControl: Bool { isStreaming && !voice.isActive && !isSendingVoice }
+
     private var canSendNow: Bool {
         !isBusy && !isSendingVoice && canSend && draft.isValid && !draft.isComposing
             && (voice.phase == .recording || (!voice.isActive && draft.canAttemptSend))
     }
 
     private func sendIfReady() {
-        guard !isStreaming, canSendNow else { return }
+        guard !showsStopControl, canSendNow else { return }
         guard voice.phase == .recording else { onSend(); return }
         isSendingVoice = true
         let currentDraft = draft
@@ -242,6 +244,7 @@ struct ChatComposer: View {
 
 /// Keep the repeating animation local so transcript updates don't drive layout.
 private struct VoiceInputHalo: View {
+    let color: Color
     let diameter: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
@@ -265,7 +268,7 @@ private struct VoiceInputHalo: View {
 
     private var ring: some View {
         Circle()
-            .stroke(.tint, lineWidth: 2)
+            .stroke(color, lineWidth: 2)
             .frame(width: diameter, height: diameter)
     }
 }

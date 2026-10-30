@@ -35,6 +35,8 @@ struct ChatComposerDock: View {
     @State private var photos: [PhotosPickerItem] = []
     @State private var attachmentError: String?
     @State private var isSending = false
+    @State private var sendTask: Task<Void, Never>?
+    @State private var sendGeneration = 0
     @State private var importCount = 0
     @State private var showsCommandMenu = false
 
@@ -76,7 +78,10 @@ struct ChatComposerDock: View {
                 .task(id: "\(canSelectModel):\(canSelectPermission)") { await onLoadSettings() }
         }
         .onChange(of: photos) { _, items in importPhotos(items) }
+        .onChange(of: ObjectIdentifier(draft)) { _, _ in cancelSend() }
+        .onChange(of: draft.isValid) { _, valid in if !valid { cancelSend() } }
         .onDisappear {
+            cancelSend()
             editor.finishEditing()
             draft.isFocused = false
         }
@@ -86,13 +91,26 @@ struct ChatComposerDock: View {
     }
 
     private func send() {
-        guard !isSending, !isBusy, importCount == 0, canSend, !isStreaming else { return }
+        guard !isSending, !isBusy, importCount == 0, canSend else { return }
         isSending = true
-        Task { @MainActor in
-            defer { isSending = false }
-            guard let text = await editor.committedTextForSend() else { return }
+        sendGeneration += 1
+        let current = sendGeneration
+        let sendingDraft = draft
+        sendTask = Task { @MainActor in
+            defer {
+                if sendGeneration == current { isSending = false; sendTask = nil }
+            }
+            guard let text = await editor.committedTextForSend(), !Task.isCancelled,
+                  sendGeneration == current, draft === sendingDraft, sendingDraft.isValid else { return }
             await onSend(text)
         }
+    }
+
+    private func cancelSend() {
+        sendGeneration += 1
+        sendTask?.cancel()
+        sendTask = nil
+        isSending = false
     }
 
     private func queue(_ next: AttachmentPicker) { pendingPicker = next; showsOptions = false }

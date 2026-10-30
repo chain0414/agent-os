@@ -61,6 +61,7 @@ struct AppSymbol: View {
     @State private var engine = ProbeSpeechRecognizer()
     @State private var voice: ComposerVoiceInput
     @State private var sendCount = 0
+    @State private var stopCount = 0
     @State private var lastSentText: String?
 
     init() {
@@ -78,9 +79,11 @@ struct AppSymbol: View {
             Spacer()
             Text("已发送：\(sendCount)")
                 .accessibilityIdentifier("voice.probe.sendCount")
+            Text("已停止生成：\(stopCount)")
+                .accessibilityIdentifier("voice.probe.stopCount")
             Text(verbatim: lastSentText ?? "尚未发送文字")
                 .accessibilityIdentifier("voice.probe.sentText")
-            ChatComposer(draft: draft, editor: editor, isStreaming: false,
+            ChatComposer(draft: draft, editor: editor, isStreaming: scenario == "running-recording",
                 canSend: scenario != "disabled-target",
                 maximumEditorHeight: 160, controls: ChatControlMetrics(bodyLineHeight: scenario == "large" ? 40 : 22),
                 onSend: {
@@ -91,7 +94,7 @@ struct AppSymbol: View {
                         lastSentText = text
                         sendCount += 1
                     }
-                }, onStop: {}, onOptions: {},
+                }, onStop: { stopCount += 1 }, onOptions: {},
                 showsCommands: true, voice: voice)
                 .frame(maxWidth: scenario == "narrow" ? 320 : .infinity)
         }
@@ -100,7 +103,7 @@ struct AppSymbol: View {
         .task {
             switch scenario {
             case "recording", "finishing", "preparing", "large", "narrow", "final-revision", "final-failure", "no-speech",
-                 "send-finishing", "empty-recording", "disabled-target":
+                 "send-finishing", "empty-recording", "disabled-target", "running-recording":
                 draft.text = scenario == "empty-recording" ? "" : "原稿："
                 voice.start(draft: draft, locale: Locale(identifier: "zh-CN"))
                 await voice.waitUntilSettled()

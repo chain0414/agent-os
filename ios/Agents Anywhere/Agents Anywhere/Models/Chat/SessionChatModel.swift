@@ -34,6 +34,26 @@ final class SessionChatModel {
     @ObservationIgnored let repository: V2SessionRepository
     @ObservationIgnored private let attachments: V2AttachmentService
     @ObservationIgnored private let files: V2WorkspaceFilesService?
+    @ObservationIgnored private var isSubmittingComposer = false
+
+    private struct ComposerSendSnapshot {
+        let draft: ComposerDraft
+        let text: String
+        let attachments: [ChatAttachment]
+        let attachmentIDs: [V2AttachmentID]
+
+        init(session: V2SessionModel) {
+            draft = session.composer; text = draft.text; attachments = draft.attachments
+            attachmentIDs = session.draftAttachmentIDs
+        }
+
+        func matches(_ session: V2SessionModel) -> Bool {
+            session.isValid && session.composer === draft && draft.isValid
+                && draft.text == text && draft.attachments == attachments
+                && session.draftAttachmentIDs == attachmentIDs
+                && !draft.isVoiceInputActive && !draft.isComposing
+        }
+    }
 
     init(session: V2SessionModel, repository: V2SessionRepository, attachments: V2AttachmentService, files: V2WorkspaceFilesService? = nil) {
         self.session = session; self.repository = repository; self.attachments = attachments
@@ -82,6 +102,18 @@ final class SessionChatModel {
     var canChangeTakeover: Bool {
         session.isValid && session.connection == .connected && session.metadata?.connectorStatus == .online
             && session.network.availability != .offline && !isWorking && !takeoverUncertain
+    }
+    /// Enables the explicit Send request; sending still requires fresh effective permission.
+    var canRequestSend: Bool {
+        !takeoverUncertain && !isWorking && !isRunningCommand && (session.canSend || canTakeoverForSend)
+    }
+
+    private var canTakeoverForSend: Bool {
+        guard session.metadata?.takeover == false, session.runtime.isFresh, canChangeTakeover,
+              !isRunningCommand, !session.notices.notices.contains(where: { $0.blocks(session.id) }),
+              let capability = session.runtime.capabilities?.capability(id: "session.send_message") else { return false }
+        return capability.supported && capability.available && !capability.allowed
+            && capability.unavailableReason == "session_not_taken_over"
     }
     var canBrowseFiles: Bool {
         session.isValid && session.metadata?.connectorStatus == .online && session.network.availability != .offline
@@ -293,13 +325,69 @@ final class SessionChatModel {
         }
     }
 
+    /// Only a user Send action may take over a read-only session. Each suspension
+    /// must retain this draft and recheck authoritative permission before a write.
+    func sendFromComposer(_ text: String) async {
+        guard !isSubmittingComposer else { return }
+        let snapshot = ComposerSendSnapshot(session: session)
+        guard !Task.isCancelled, snapshot.matches(session), snapshot.text == text,
+              snapshot.draft.canAttemptSend else {
+            error = String(localized: "发送已取消或草稿已更改，请确认后重试。")
+            return
+        }
+        guard !isWorking, !isRunningCommand, canRequestSend else {
+            error = responseUnavailableReason ?? String(localized: "当前无法发送消息，草稿已保留。")
+            return
+        }
+        isSubmittingComposer = true
+        error = nil
+        defer { isSubmittingComposer = false }
+        if !session.canSend {
+            guard await setTakeover(true) else {
+                error = takeoverError ?? responseUnavailableReason ?? String(localized: "当前无法发送消息，草稿已保留。")
+                return
+            }
+        }
+        guard !Task.isCancelled, snapshot.matches(session) else {
+            error = String(localized: "发送已取消或草稿已更改，请确认后重试。")
+            return
+        }
+        guard !isWorking, !isRunningCommand, !takeoverUncertain,
+              session.runtime.isFresh, session.canSend,
+              (snapshot.attachments.isEmpty && snapshot.attachmentIDs.isEmpty) || canAttach else {
+            error = responseUnavailableReason ?? String(localized: "当前无法发送消息，草稿已保留。")
+            return
+        }
+        // Resolve slash commands using the post-takeover capability snapshot.
+        await send(text)
+    }
+
     func send(_ text: String) async {
-        if let command = await catalogCommand(for: text) {
+        let snapshot = ComposerSendSnapshot(session: session)
+        let command = await catalogCommand(for: text)
+        guard !Task.isCancelled, snapshot.matches(session) else {
+            error = String(localized: "发送已取消或草稿已更改，请确认后重试。")
+            return
+        }
+        guard !takeoverUncertain, !isWorking, !isRunningCommand,
+              session.runtime.isFresh, session.canSend else {
+            error = takeoverError ?? responseUnavailableReason ?? String(localized: "当前无法发送消息，草稿已保留。")
+            return
+        }
+        if let intent = SlashIntent(text), intent.isCommandLike, canUseCommands,
+           isLoadingCommands || commandsError != nil {
+            error = String(localized: "当前无法发送消息，草稿已保留。")
+            return
+        }
+        if let command {
             session.composer.text = text
             await runCommand(command, raw: text)
             return
         }
-        guard !isWorking, session.canSend, !session.composer.isComposing else { return }
+        guard !isWorking, session.canSend else {
+            error = responseUnavailableReason ?? String(localized: "当前无法发送消息，草稿已保留。")
+            return
+        }
         let draft = session.composer
         draft.text = text
         let selected = draft.attachments

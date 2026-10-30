@@ -79,14 +79,14 @@ struct SessionChatView: View, Equatable {
                             .traceChatLayout("interaction-dock")
                         ChatComposerDock(draft: session.composer, settings: model.settings,
                             maximumEditorHeight: min(160, max(72, geometry.size.height * 0.30)), controls: controls,
-                            canSend: session.canSend, canAttach: model.canAttach,
+                            canSend: model.canRequestSend, canAttach: model.canAttach,
                             canSelectModel: session.runtime.allows("catalog.model"),
                             canSelectPermission: session.runtime.allows("catalog.permission"),
                             isStreaming: model.isRunning, canStop: session.runtime.allows("session.interrupt"),
-                            isBusy: model.isWorking || !model.isOpeningReady, placeholder: requiresTakeover ? String(localized: "请先接管") : String(localized: "询问 Agents"),
+                            isBusy: model.isWorking || !model.isOpeningReady, placeholder: requiresTakeover && !model.canRequestSend ? String(localized: "请先接管") : String(localized: "询问 Agents"),
                             isLoadingSettings: model.isLoadingSettings,
                             settingsError: model.settingsError, sessionChat: model,
-                            onSend: model.send, onStop: model.interrupt, onLoadSettings: model.loadSettings,
+                            onSend: model.sendFromComposer, onStop: model.interrupt, onLoadSettings: model.loadSettings,
                             onApplySettings: model.applySettings, applyError: { model.settingsError },
                             onDraftChange: { model.repository.draftDidChange(sessionID: model.session.id) },
                             credentials: { try await speechService.credentials() })

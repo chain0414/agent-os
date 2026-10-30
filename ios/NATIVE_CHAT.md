@@ -155,7 +155,9 @@ Semantic error and availability colors remain separate from the primary color.
 
 ### 语音输入
 
-新会话和已有会话的输入框旁都有麦克风按钮：点按开始，语音处理中麦克风点亮，同色外圈向外扩散并淡出，不额外显示录音状态或取消按钮文字（系统开启「减弱动态效果」时保持静态圆环）。录音中可直接点发送：立即结束采集，收齐最终转写后发送一次，无需先手动停止；也可再次点麦克风结束，检查、修改文字后发送。录音与收尾期间暂停编辑，收尾期间暂停重复发送；状态仍供 VoiceOver 播报，录音时提供无障碍取消操作，取消恢复录音前的文字，附件保持不变。离开页面、进入后台或音频中断时停止采集并保留已经显示的文字。
+新会话和已有会话的输入框旁都有麦克风按钮：点按开始，语音处理中麦克风使用固定淡蓝色（`#66B3FF`），同色外圈向外扩散并淡出，不额外显示录音状态或取消按钮文字（系统开启「减弱动态效果」时保持静态圆环）。录音中可直接点发送：立即结束采集，收齐最终转写后发送一次，无需先手动停止；也可再次点麦克风结束，检查、修改文字后发送。录音与收尾期间暂停编辑，收尾期间暂停重复发送；状态仍供 VoiceOver 播报，录音时提供无障碍取消操作，取消恢复录音前的文字，附件保持不变。离开页面、进入后台或音频中断时停止采集并保留已经显示的文字。
+
+已有会话只因尚未接管而不能发送时，录音中的发送按钮也可操作：用户点击后先结束录音并收齐最终文字，再按需接管、重新核对最新发送权限后投递；失败保留草稿并提示，不重复接管或投递。离线、阻塞请求、Runtime 不支持或仍拒绝发送时保留原有限制。Agent 运行中录音时，按钮优先用于发送，不误触「停止生成」；最终仍由有效能力决定是否允许消息交付。提交任务绑定输入框页面，离开页面或切换草稿会取消待提交操作。
 
 识别使用阿里云百炼 `qwen-audio-3.0-asr-flash-streaming`。Server 2.2 的语音凭证接口保存永久 Key，并向已登录账户签发短期凭证；手机通过 WebSocket 直接上传音频到阿里云。首次无需下载模型，但必须联网并允许麦克风权限；音频和临时凭据不落盘，Server、Codex 和 DSH 不接收录音。识别语言显式包含中文与英文，不受键盘语言影响。
 
@@ -168,7 +170,7 @@ python3 ios/scripts/probe-voice-input.py --device <booted-simulator-udid> --outp
 xcrun simctl launch <booted-simulator-udid> com.agentsanywhere.voice-input-probe recording
 ```
 
-可传入 `empty-new-session`、`recording`、`finishing`、`preparing`、`narrow`、`large` 和 `error` 查看不同合成状态，或用 `final-revision`、`final-failure`、`no-speech` 检查直接发送是否等到最终文字、失败和空结果是否保持未发送；`send-finishing` 检查等待收尾时不重复发送，`empty-recording` 检查首个结果前发送，`disabled-target` 检查目标不可发送。探针显示实际原生编辑器读取的文本与发送次数，不向 Agent 投递。真机麦克风、中文与英文混说的准确率、弱网、蓝牙切换以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。接口和部署配置见 [语音输入凭证](../docs/api/speech.md)。
+可传入 `empty-new-session`、`recording`、`finishing`、`preparing`、`narrow`、`large` 和 `error` 查看不同合成状态，或用 `final-revision`、`final-failure`、`no-speech` 检查直接发送是否等到最终文字、失败和空结果是否保持未发送；`send-finishing` 检查等待收尾时不重复发送，`empty-recording` 检查首个结果前发送，`disabled-target` 检查目标不可发送，`running-recording` 检查 Agent 运行中录音仍发送而不触发停止。探针显示实际原生编辑器读取的文本与发送次数，不向 Agent 投递。真机麦克风、中文与英文混说的准确率、弱网、蓝牙切换以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。接口和部署配置见 [语音输入凭证](../docs/api/speech.md)。
 
 ## Session presentation and files
 

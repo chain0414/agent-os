@@ -16599,6 +16599,40 @@
           }
         }
       }
+    },
+    "发送已取消或草稿已更改，请确认后重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending was canceled or the draft changed. Review it and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送已取消或草稿已更改，请确认后重试。"
+          }
+        }
+      }
+    },
+    "当前无法发送消息，草稿已保留。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't send right now. Your draft has been kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前无法发送消息，草稿已保留。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
