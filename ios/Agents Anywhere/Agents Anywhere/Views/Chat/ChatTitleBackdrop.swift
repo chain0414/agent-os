@@ -40,16 +40,27 @@ final class ChatTitleBackdropController: UIViewController {
         let changed = self.visible != visible
         self.visible = visible; self.opaque = opaque
         titlePlate.configure(opaque: opaque); statusPlate.configure(opaque: opaque)
-        if changed && titlePlate.superview != nil {
-            UIView.animate(withDuration: animated ? ChatTitleTransition.duration : 0, delay: 0,
+        if !animated {
+            titlePlate.layer.removeAllAnimations()
+            titlePlate.alpha = visible ? 1 : 0
+        } else if changed && titlePlate.superview != nil {
+            // Keep the transcript blurred until the title has folded away.
+            // Fading both together exposes readable body text behind the
+            // partially visible title. A new drag cancels any delayed fade.
+            let opacity = titlePlate.layer.presentation().map { CGFloat($0.opacity) } ?? titlePlate.alpha
+            titlePlate.layer.removeAllAnimations()
+            UIView.performWithoutAnimation { titlePlate.alpha = opacity }
+            UIView.animate(withDuration: 0.12,
+                           delay: visible ? 0 : ChatTitleTransition.duration,
                            options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut]) {
                 self.titlePlate.alpha = visible ? 1 : 0
             }
-        } else { titlePlate.alpha = visible ? 1 : 0 }
+        } else if titlePlate.superview == nil { titlePlate.alpha = visible ? 1 : 0 }
         scheduleRegistration()
     }
     func detach() { stopped = true; removePlates() }
     private func removePlates() {
+        titlePlate.layer.removeAllAnimations()
         titlePlate.removeFromSuperview(); statusPlate.removeFromSuperview(); registeredParent = nil
     }
     private func scheduleRegistration() {

@@ -6,7 +6,7 @@
 
 ### iOS
 
-- 会话标题与副标题在滚动停稳 1.5 秒后向上收起，滚动时向下展开；顶部渐变模糊改善文字与正文的分离，导航按钮保持可用，正文位置不随显隐跳动。（[0730641b](https://github.com/anywhere-labs/Agents-Anywhere/commit/0730641b)）
+- 会话标题与副标题在滚动停稳 1.5 秒后向上收起，滚动时向下展开；顶部渐变模糊在收放过程中隔开标题与正文，导航按钮保持可用，正文位置不随显隐跳动。（[0730641b](https://github.com/anywhere-labs/Agents-Anywhere/commit/0730641b)、[82602971](https://github.com/anywhere-labs/Agents-Anywhere/commit/82602971)）
 - 当前输入请求共用一张带序号的卡片，可直接填写、左右切换并保留草稿；圆角边缘显示正常，横屏可展开填写，回答被接受后及时收起，历史非阻塞问卷仍可从「交互与通知」查看。（[d79d8226](https://github.com/anywhere-labs/Agents-Anywhere/commit/d79d8226)、[77baa3b6](https://github.com/anywhere-labs/Agents-Anywhere/commit/77baa3b6)、[9f1dee6e](https://github.com/anywhere-labs/Agents-Anywhere/commit/9f1dee6e)、[ce0451bc](https://github.com/anywhere-labs/Agents-Anywhere/commit/ce0451bc)、[45537974](https://github.com/anywhere-labs/Agents-Anywhere/commit/45537974)、[5a162554](https://github.com/anywhere-labs/Agents-Anywhere/commit/5a162554)）
 - 自动化任务保留带原生时间的折叠入口，展开可看指令，助手结果继续显示；仍可从会话菜单查看完整原始记录。（[c57149dd](https://github.com/anywhere-labs/Agents-Anywhere/commit/c57149dd)、[4379d5c6](https://github.com/anywhere-labs/Agents-Anywhere/commit/4379d5c6)、[da1093f9](https://github.com/anywhere-labs/Agents-Anywhere/commit/da1093f9)）
 - 执行过程按轮次折叠并显示状态和可用的原生耗时，展开继续查看工具明细。（[ae2ac025](https://github.com/anywhere-labs/Agents-Anywhere/commit/ae2ac025)、[303e8b23](https://github.com/anywhere-labs/Agents-Anywhere/commit/303e8b23)、[8663b20f](https://github.com/anywhere-labs/Agents-Anywhere/commit/8663b20f)、[daedd709](https://github.com/anywhere-labs/Agents-Anywhere/commit/daedd709)）
