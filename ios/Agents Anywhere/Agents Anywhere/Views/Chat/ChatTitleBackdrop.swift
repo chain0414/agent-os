@@ -41,7 +41,8 @@ final class ChatTitleBackdropController: UIViewController {
         self.visible = visible; self.opaque = opaque
         titlePlate.configure(opaque: opaque); statusPlate.configure(opaque: opaque)
         if changed && titlePlate.superview != nil {
-            UIView.animate(withDuration: animated ? 0.2 : 0, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            UIView.animate(withDuration: animated ? ChatTitleTransition.duration : 0, delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut]) {
                 self.titlePlate.alpha = visible ? 1 : 0
             }
         } else { titlePlate.alpha = visible ? 1 : 0 }

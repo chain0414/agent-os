@@ -72,9 +72,8 @@ struct ChatPageToolbar: ViewModifier {
                         }
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .opacity(titleVisibility?.isVisible == false ? 0 : 1)
-                        .accessibilityHidden(titleVisibility?.isVisible == false)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: titleVisibility?.isVisible)
+                        .modifier(ChatTitleReveal(isVisible: titleVisibility?.isVisible != false,
+                                                  reduceMotion: reduceMotion))
                     }
                     .sharedBackgroundVisibility(.hidden)
                 } else if subtitle != nil || status != nil {
@@ -83,6 +82,30 @@ struct ChatPageToolbar: ViewModifier {
                     }
                 }
             }
+    }
+}
+
+enum ChatTitleTransition {
+    static let duration: TimeInterval = 0.42
+}
+
+/// Animate only the title's drawing region. The top-anchored mask rolls the
+/// subtitle and title upward on dismissal, then reveals them downward again;
+/// the native toolbar's measured height and the reading position stay fixed.
+private struct ChatTitleReveal: ViewModifier {
+    let isVisible: Bool
+    let reduceMotion: Bool
+    @ScaledMetric(relativeTo: .headline) private var lift: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: isVisible || reduceMotion ? 0 : -lift)
+            .opacity(isVisible ? 1 : (reduceMotion ? 0 : 0.4))
+            .mask(alignment: .top) {
+                Rectangle().scaleEffect(x: 1, y: isVisible ? 1 : 0, anchor: .top)
+            }
+            .accessibilityHidden(!isVisible)
+            .animation(reduceMotion ? nil : .easeInOut(duration: ChatTitleTransition.duration), value: isVisible)
     }
 }
 
