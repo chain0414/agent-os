@@ -203,7 +203,7 @@ DSH 宿主边界：本机当前运行 DeepSeek Harness Dev 0.2.1-rc.3，desktop 
 
 证据位于 `.local-dev/ios-device-acceptance/results/header-scroll-final-build21/result.json`、`.local-dev/ios-device-optimization/build21-final-header-*.png`、`build21-final-header-geometry.json`、`header-scroll-source-audit.json` 和 `deployment-build21.json`。合成界面只用于隔离验证，正式账号未发送聊天、接管或回答交互。
 
-## DSH 真实任务恢复的当前边界
+## DSH 真实任务恢复的核查与部署（10 月 29—30 日）
 
 本轮已恢复标准 Yarn 依赖，类型检查、Host／Client 构建与产物检查通过；完整 46 文件、230 用例集合串行执行为 228 通过、2 项缺少一次性测试数据库而跳过。最初并发检查的两个 Python 启动短超时保留记录，不冒称原并发命令全绿。Connector 原先只接受投影版本 2／3，已补支持当前已实现的 4／5，未知未来版本仍拒绝；相关 DSH 回归 201 项通过，正在运行的 Connector 已以同一身份加载。
 
@@ -211,4 +211,22 @@ DSH 宿主边界：本机当前运行 DeepSeek Harness Dev 0.2.1-rc.3，desktop 
 
 冷启动替换完整、已验证制品的脚本已准备；当次执行前 51 条 DSH 投影显示空闲，官方退出框仅提示关闭期间定时任务暂停。辅助脚本曾据此阶段输出 screenLocked=true、onConsole=false 并请求用户解锁；2026-10-30 复核发现 onConsole 键名少一个 S，且将锁屏字段缺失错误地当成 true，因此撤回“该输出已证明实际锁屏”的结论。正确键是 `kCGSSessionOnConsoleKey`，必须区分字典不存在、字段未设置与明确锁定，不能用默认值制造锁屏事实。
 
-2026-10-30 接续时，原先宿主已退出，随后重新启动；官方退出检查及原生日志又发现一条新的「bug 修复」轮次正在执行，该任务的 bash 正在启动第二套 App／Host。已停止退出，改为只读监测原生轮次自然结束。此时 Server 投影仍可显示 idle，因此不能据此推断整个原生宿主无活动任务。新插件尚未生效，两条 Server 回填及正式 iPhone 的任务展开仍待验收；不能将前述合成入口测试视为真实任务恢复成功。构建、备份、原生状态回执和待执行冷启动脚本位于 `.local-dev/dsh-turn-timing/deployment/`；详细受控流程见 `dsh-bridge-next/DEPLOY.md`。
+2026-10-30 接续时，原先宿主已退出，随后重新启动；官方退出检查及原生日志又发现一条新的「bug 修复」轮次正在执行，该任务的 bash 正在启动第二套 App／Host。停止退出，改为只读监测原生轮次自然结束。此时 Server 投影仍可显示 idle，因此不能据此推断整个原生宿主无活动任务。该阶段新插件尚未生效，不能将前述合成入口测试视为真实任务恢复成功。
+
+### 2026-10-30 本地更新与真实回填
+
+另一条原生任务于 11:07 自行结束并关闭其临时 Profile 的测试实例，随后才通过官方全部工作退出检查，正常退出真实宿主、原子替换完整标准制品并重新打开同一 App／Profile。未强杀、回答原任务审批或关闭其测试窗口。实际制品为 `2.1.0-local.20261029.r7f31f826`，Profile 原依赖和锁文件保持 `2.1.0`；官方 PNPM 安装未成功，后续官方安装可能覆盖本地制品。
+
+部署前现场重读原生 v4 日志、在换包前复核文件指纹与进程状态；第二次目录 rename 失败会补偿恢复旧目录，预检失败不会误启动 App。首次冷启动的就绪检查过早接受缓存 idle，后续组合断言阻止了成功声明；保留新宿主运行，等待真实认证握手后以相同后置断言重核通过，没有第二次重启。辅助流程随后补齐组合就绪轮询，最终 10 项临时目录／合成日志／mock 隔离检查通过，未据此重复部署。
+
+| 真实验证 | 结果与证据范围 |
+| --- | --- |
+| 制品与宿主 | 新主进程／Host、同 Host 认证握手、完整制品逐文件匹配与正确 Runtime 身份均通过；没有 Runtime 自报版本字段，不将其伪称为自报版本证据 |
+| 原两条任务 | 逐条对照原生日志的触发时间、完整正文 SHA-256、用户输入与助手结果的原生键和正文；唯一匹配，输入先于执行块及对应结果 |
+| 独立回读 | 主 Agent 只读重新拉取 Server 时间线，以上两条关联和顺序再次通过；共三条 schedule，包含随后新增的自然任务，没有把总数限定为二 |
+| 数据与计划 | 同 Connector／平台及原生会话身份；四个保护文件摘要、目标原生日志既有前缀、Profile 元数据及原两条未来计划配置保持；不据此声称所有运行缓存逐字节不变或未来触发已经执行验收 |
+| 正式 iPhone | 当前停在系统「为 XCTest 输入 iPhone 密码 / Enable UI Automation」验证页；0 个用例启动，尚无业务检查通过，后端回填不替代手机实际展开／收起及标题显隐检查 |
+
+最终后端回执为 `.local-dev/dsh-turn-timing/deployment/cold-start-deployment-result.json`（ok=true），首次就绪早退保存于 `cold-start-recovery-result.json`，主 Agent 独立回读见 `.local-dev/ios-device-optimization/dsh-live-readback-oct30.json`。详细受控流程见 `dsh-bridge-next/DEPLOY.md`，截图与运行记录仅保存在忽略目录。
+
+正式 Build 21、runner 与有线连接均已核对，隔夜测试通道已只重建自有进程。两次启动没有任何测试用例运行，不能归为十项业务检查失败；进一步截图实际确认独立的 UI Automation 系统密码验证，和普通屏幕锁不同。主 Agent 已查看该验证页并请求用户只在 iPhone 本机完成，密码不进入聊天；等待期间停止截图、录屏、输入与重试。原启动回执保留，后续通过验证时另建结果目录，不覆盖该阶段记录。

@@ -49,6 +49,16 @@ PNPM 11 若尚未把新本地归档纳入 store，可先使用同一个官方 CL
 
 本次工作区的正常冷启动入口为 `server/.venv/bin/python .local-dev/dsh-turn-timing/deployment/cold-start-reviewed.py --execute-after-official-quit`，从仓库根目录运行；仅在上述官方退出／进程与持久状态复核后执行。之前的 PNPM 尝试入口为 `.local-dev/dsh-turn-timing/deployment/deploy-local.py --apply`。它要求已经存在标准构建、同集合测试报告、本地归档报告和旧版回滚备份；只对精确目标执行权威历史同步，不发送消息或回应交互。
 
+## 本机已验证记录（2026-10-30）
+
+官方 PNPM 安装因既有固定 Git 归档无法在有界网络窗口内下载完成，最终采用完整标准制品的本机可逆目录部署，实际包为 `2.1.0-local.20261029.r7f31f826`，Profile 原依赖仍为 `2.1.0`。实际宿主通过精确 PID 的官方正常退出完成冷启动；没有强杀，也没有回答其它任务的审批。等待中的原生「bug 修复」任务及其临时测试实例先自行结束。
+
+新主进程／Host、同 Host 认证握手、完整制品文件、原 Connector／会话身份与 Runtime 均已核对。两条原始 schedule 的原生时间、完整正文摘要及其对应结果顺序均通过；Server 当前还有一条随后自然执行的任务，因此不把总数限制为二。原来的两条未来计划配置、四个保护文件摘要、原生日志既有前缀和 Profile 元数据保持不变。
+
+首次冷启脚本曾在启动初期过早接受缓存中的 idle，随后在组合就绪断言退出；新宿主保持运行，经等待真实认证握手后复用相同后置验证通过，未删减断言或进行第二次重启。忽略目录中的 `cold-start-deployment-result.json` 保存最终验证，`cold-start-recovery-result.json` 保留首次失败；`verify-running-reviewed.py` 用于已启动宿主的后置复核。手机实际呈现由单独真机验收记录确认，后端验证不能代替手机验收。
+
+辅助冷启动流程随后已补组合就绪等待：唯一新主进程／目标 Host、同 Host 认证 lease 与正确 Runtime 身份同时满足后才进入回填检查；换包前现场扫描原生轮次并复核文件指纹，第二次 rename 失败会恢复旧目录。最终 10 项纯隔离／mock 检查通过，没有为修辅助脚本重新部署实际宿主。
+
 ## 健康检查
 
 - 实际 Runtime 桥可用且加载新制品；记录是否通过正常退出冷启动及新的主进程／Host PID，不以单一 manager lease 判定成功。
