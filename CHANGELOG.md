@@ -4,9 +4,13 @@
 
 ## 未发布
 
+### 升级须知
+
+- iOS 语音输入需配套 Server 2.2 并配置百炼 API Key；音频联网发送至阿里云转写，其他会话功能保持兼容。（[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)）
+
 ### iOS
 
-- 新会话和已有会话支持点按麦克风将语音转成文字，检查修改后再发送；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)）
+- 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说，转成文字后检查发送；取消录音保留原稿和附件。（[48c96602](https://github.com/anywhere-labs/Agents-Anywhere/commit/48c96602)、[8bc663b3](https://github.com/anywhere-labs/Agents-Anywhere/commit/8bc663b3)）
 
 ### 会话创建与消息交付
 
