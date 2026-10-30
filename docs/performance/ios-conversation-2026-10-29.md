@@ -225,8 +225,36 @@ DSH 宿主边界：本机当前运行 DeepSeek Harness Dev 0.2.1-rc.3，desktop 
 | 原两条任务 | 逐条对照原生日志的触发时间、完整正文 SHA-256、用户输入与助手结果的原生键和正文；唯一匹配，输入先于执行块及对应结果 |
 | 独立回读 | 主 Agent 只读重新拉取 Server 时间线，以上两条关联和顺序再次通过；共三条 schedule，包含随后新增的自然任务，没有把总数限定为二 |
 | 数据与计划 | 同 Connector／平台及原生会话身份；四个保护文件摘要、目标原生日志既有前缀、Profile 元数据及原两条未来计划配置保持；不据此声称所有运行缓存逐字节不变或未来触发已经执行验收 |
-| 正式 iPhone | 当前停在系统「为 XCTest 输入 iPhone 密码 / Enable UI Automation」验证页；0 个用例启动，尚无业务检查通过，后端回填不替代手机实际展开／收起及标题显隐检查 |
+| 正式 iPhone | 用户完成系统验证后，Build 22 真实会话十项只读检查通过；实际展开 10 月 30 日一条任务，并非逐条展开原 28／29 日两条 |
 
 最终后端回执为 `.local-dev/dsh-turn-timing/deployment/cold-start-deployment-result.json`（ok=true），首次就绪早退保存于 `cold-start-recovery-result.json`，主 Agent 独立回读见 `.local-dev/ios-device-optimization/dsh-live-readback-oct30.json`。详细受控流程见 `dsh-bridge-next/DEPLOY.md`，截图与运行记录仅保存在忽略目录。
 
-正式 Build 21、runner 与有线连接均已核对，隔夜测试通道已只重建自有进程。两次启动没有任何测试用例运行，不能归为十项业务检查失败；进一步截图实际确认独立的 UI Automation 系统密码验证，和普通屏幕锁不同。主 Agent 已查看该验证页并请求用户只在 iPhone 本机完成，密码不进入聊天；等待期间停止截图、录屏、输入与重试。原启动回执保留，后续通过验证时另建结果目录，不覆盖该阶段记录。
+正式 Build 21、runner 与有线连接均已核对，隔夜测试通道已只重建自有进程。最初两次启动没有任何测试用例运行，不能归为十项业务检查失败；进一步截图实际确认独立的 UI Automation 系统密码验证，和普通屏幕锁不同。主 Agent 已查看该验证页并请求用户只在 iPhone 本机完成，密码不进入聊天；等待期间停止截图、录屏、输入与重试。用户完成后复用已授权 runner，不重新签装；原启动回执保留，成功结果另存，没有覆盖该阶段记录。
+
+### 标题纵向收放与真实验收（Build 22）
+
+Wayne 指出纯淡入淡出仍然生硬，要求向上收起／向下展开。源码 `82602971` 改为固定绘制区域内的顶部锚定纵向裁切、少量上移及轻微淡化，0.42 秒缓入缓出，背景材质同步；测量高度及正文位置保持。1.5 秒是开始收起的时间，完成约在停稳后 1.92 秒；减少动态效果时不动画、不位移。未改计时或跟随模型，六项标题状态回归通过。
+
+公司签名 Release Build 22 构建并覆盖安装成功，前后 10 个数据／偏好文件哈希相同。真实 DSH「周报日报质量优化建议」十项只读检查通过，主 Agent 已查看滚动标题、停稳、折叠与展开 PNG：09:05 入口、向下／向上箭头、助手结果和原地址蓝色链接可见；展开原文明确 occurrence_at=2026-10-30T01:05:00.000Z。现有未发送草稿保持，未输入或发送文本、点击真实链接、接管或回答审批。
+
+正式结果位于 `.local-dev/ios-device-acceptance/results/readonly-dsh-automation-authenticated-build22-oct30/result.json`；截图为 `.local-dev/ios-device-optimization/build22-real-readonly-dsh-*.png`，安装回执为 `deployment-build22.json`。这十项证明最终状态与操作正确，动画开始时 AX 即隐藏，因此不据此单独声称已验证渐进运动。
+
+### 动画中间态与反向中断闭环（Build 23）
+
+Build 22 的原速采样实际约 2.13 fps，仅捕获少量中间态，不能用于判断流畅度。连续原帧显示：收起中背景与标题同时淡出，正文提前显露造成短暂叠字；没有把静态检查通过当作动画验收完成。源码 `21d75ba3` 修正为标题 0.42 秒收起结束后背景再以 0.12 秒退场，显示时先快速建立背景；反向滚动取消旧延迟动画并从实际呈现透明度恢复，减少动态效果和页面退出会立即清理动画。
+
+公司签名 Release Build 23 已覆盖安装，前后 10 个数据／偏好文件哈希一致，设备回读 23。最终验证分开记录：
+
+| 验证来源 | 实际输入与结论 |
+| --- | --- |
+| 标题状态回归 | 六项既有计时／跟随状态检查通过，未改计时模型 |
+| 完整原生场景 | 同源完整 SessionChatView、离线合成消息，真实手势十六项通过：深浅色、横屏、正文不重排、按钮常驻、手动显隐及自动跟随不唤醒 |
+| 真实 DSH 会话 | 正式 Build 23 十项只读复测通过，展开并收起 10 月 30 日一条任务，标题／副标题及助手结果可读；未点击真实 URL、接管、发送草稿或回答审批 |
+| 模型驱动中断 | 真机上使用生产 Toolbar／Backdrop／TitleVisibility 与静止合成正文，以模型 phase 控制反向；不冒称真实手势已精确击中这两个时刻。979 个呈现采样中，第一次实际在隐藏后 0.203 秒反向，背景保持 1；第二次在 0.467 秒反向，实际背景透明度 0.806657，后续恢复为 1，旧淡出未继续打断 |
+| 连续画面 | 最终 150 帧／19.25 秒，实际约 7.74 fps，中位间隔 0.1266 秒、最大 0.2673 秒；没有慢放生产动画、插帧或把编码帧率当作采样率。主 Agent 已查看正常收起、展开及两种反向的相邻原帧，标题位移／裁切和稳定正文明确，未见旧中间叠字 |
+
+设备实际 Reduce Motion=false、VoiceOver=false、减少透明度=false，动画开启。模型场景仅用于可重复边界和呈现采样，未向生产 App 增加控制入口。前一轮第二次反向仅落在隐藏后 0.399 秒，尚未进入背景淡出，不计作该边界通过；最终改为观察实际隐藏状态后计时，并用呈现数据确认命中。采集服务只监听 loopback，模型场景结束即停止采集和监听。早期一段录制的启动过渡帧及相关派生物已清理，最终录像首帧已确认纯合成场景。
+
+最终原生结果：`.local-dev/ios-device-acceptance/results/header-native-build23-oct30/result.json`；正式结果：`readonly-dsh-automation-build23-oct30/result.json`。动态材料集中在 `header-model-motion-build23-relative-oct30/`，含 `presentation.json`、`reversal-summary.json`、`motion/header-motion-physical.mp4` 及四张连续帧 contact sheet；安装回执为 `.local-dev/ios-device-optimization/deployment-build23.json`。
+
+已卸载独立 probe，仅按 PID 与命令路径停止本任务自有 tunnel；capture／HTTP／ffmpeg 与模型采样均已停止，runner 保留。正式 App 已回到真实 DSH 页面、任务保持折叠、未发草稿保持。主 Agent 查看最终截图及全 true 收尾回执 `build23-cleanup.json`。本次证明 iPhone 的方向、中间状态和功能正确，不将约 8 fps 采样外推为 60／120 fps 渲染性能，也不声称已完成 iPad 或辅助功能全矩阵实机验证。
