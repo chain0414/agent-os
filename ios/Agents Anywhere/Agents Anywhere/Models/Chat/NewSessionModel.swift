@@ -175,12 +175,13 @@ final class NewSessionModel {
         } catch { if isValid, !Task.isCancelled { homeErrors[device] = error.localizedDescription } }
     }
     var canAttach: Bool { prepared?.capabilities.allows("runtime.attachment") == true }
-    var canCreate: Bool {
+    var canSubmitDraft: Bool {
         isValid && !isCreating && !isPreparing && !creationUncertain && network.availability != .offline
             && ProjectWorkspacePath.key(workspace, deviceOS: connector?.deviceOs) != nil
             && connector?.status == .online && runtime?.isReadyForSession == true && prepared != nil
-            && settings.hasValidSelections && draft.canAttemptSend && (draft.attachments.isEmpty || canAttach)
+            && settings.hasValidSelections && (draft.attachments.isEmpty || canAttach)
     }
+    var canCreate: Bool { canSubmitDraft && draft.canAttemptSend }
 
     func updateNetwork(_ status: V2NetworkStatus) {
         network = status

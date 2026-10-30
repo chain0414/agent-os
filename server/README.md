@@ -4,6 +4,14 @@ FastAPI backend for Agents Anywhere. The server owns authentication, users,
 connectors, durable session metadata and timeline, file metadata, interaction
 routing, terminal brokering, and connector RPC dispatch.
 
+## 语音输入（2.2）
+
+iOS 语音输入使用阿里云实时识别。Server 只负责向已登录用户签发短期凭据，音频从手机直达阿里云，不进入 Server 或会话记录。
+
+启动前通过进程环境提供 `AGENT_SERVER_ASR_API_KEY`，或将 `AGENT_SERVER_ASR_CONFIG_FILE` 指向仅当前用户可读的百炼配置 JSON（读取 `api_key`、`base_url`、`workspace_id`）。本机已有 `~/.bailian/config.json` 时可显式使用该路径；Server 不会自动搜索用户凭据。可选 `AGENT_SERVER_ASR_BASE_URL` 和 `AGENT_SERVER_ASR_WORKSPACE_ID` 与 Key 所属地域、业务空间保持一致。
+
+首版支持模型 `qwen-audio-3.0-asr-flash-streaming`，永久 Key 应限制为所需模型权限。临时凭证有效期 300 秒，单用户每分钟最多签发 10 次；响应禁止缓存，凭据不持久化。配置变更需要重启 Server。未配置时只有语音功能不可用，其余功能正常；无需新增数据库迁移。详细契约、错误码和地域限制见 [语音输入凭证](../docs/api/speech.md)。
+
 ## Layout
 
 ```text

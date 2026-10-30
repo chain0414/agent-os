@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SessionInteractionContent: View {
     let item: SessionNoticeModel
@@ -23,27 +24,7 @@ struct SessionInteractionContent: View {
                     Button(String(localized: "操作详情"), appSymbol: "arrow.up.right.square") { showsDetails = true }
                         .font(.footnote).frame(minHeight: 44)
                 }
-                if let form = item.form {
-                    ForEach(form.questions) { question in
-                        questionFields(question)
-                    }
-                }
-                ForEach(item.notice.actions.filter { $0.id != item.form?.actionID }) { action in
-                    if let schema = action.input.schema,
-                       let form = NoticeActionForm(schema: schema, uiSchema: action.input.uiSchema) {
-                        if !form.fields.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(action.label).font(.subheadline.weight(.medium))
-                                NoticeActionFields(item: item, action: action, form: form)
-                                    .disabled(chat.isWorking || !chat.session.runtime.isFresh
-                                        || ![.open, .failed].contains(item.notice.status) || item.submission != .idle)
-                            }
-                        }
-                    } else if action.input.required {
-                        Text(String(localized: "此操作的表单版本暂未支持，请在 Web 中处理。"))
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
+                SessionInteractionFields(item: item, chat: chat)
                 if item.notice.type == "interaction" {
                     SessionInteractionActions(item: item, chat: chat, now: timeline.date)
                 }
@@ -69,54 +50,6 @@ struct SessionInteractionContent: View {
         case "confirmation": "questionmark.circle"
         default: item.notice.severity == "error" ? "exclamationmark.circle" : "info.circle"
         }
-    }
-
-    private func questionFields(_ question: NoticeInputQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let header = question.header { Text(header).font(.caption).foregroundStyle(.secondary) }
-            Text(question.prompt).font(.subheadline.weight(.medium))
-            ForEach(question.options) { option in
-                Button { item.select(option.id, question: question) } label: {
-                    HStack(spacing: 10) {
-                        AppSymbol(item.choices[question.id]?.contains(option.id) == true
-                            ? (question.multiple ? "checkmark.square.fill" : "checkmark.circle.fill")
-                            : (question.multiple ? "square" : "circle"))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(option.label).font(.subheadline)
-                            if let detail = option.detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
-                        }
-                        Spacer(minLength: 0)
-                    }.frame(minHeight: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }
-            if question.allowCustom {
-                let selected = item.customQuestions.contains(question.id)
-                HStack(alignment: .top, spacing: 10) {
-                    Button {
-                        item.setCustomSelected(question.multiple ? !selected : true, question: question)
-                    } label: {
-                        AppSymbol(selected
-                            ? (question.multiple ? "checkmark.square.fill" : "checkmark.circle.fill")
-                            : (question.multiple ? "square" : "circle"))
-                            .frame(width: 28, height: 44)
-                    }
-                    .buttonStyle(.plain).accessibilityLabel(String(localized: "其他回答"))
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                    NoticeTextInput(value: item.custom[question.id] ?? "", placeholder: String(localized: "其他回答"),
-                        onFocus: { item.setCustomSelected(true, question: question) },
-                        onEditingEnded: { setComposing(false, id: $0) },
-                        onChange: { text, marked, editorID in
-                            if text != (item.custom[question.id] ?? "") { item.setCustom(text, question: question) }
-                            setComposing(marked, id: editorID)
-                        })
-                }
-            }
-        }
-        // Do not disable the editor merely because its IME has marked text.
-        .disabled(chat.isWorking || !chat.session.runtime.isFresh || ![.open, .failed].contains(item.notice.status) || item.submission != .idle)
-    }
-    private func setComposing(_ marked: Bool, id: String) {
-        if marked { item.composingFields.insert(id) } else { item.composingFields.remove(id) }
     }
 
     @ViewBuilder private func submissionStatus(at now: Date) -> some View {
@@ -157,8 +90,91 @@ struct SessionInteractionContent: View {
     }
 }
 
+/// Shared editors keep inline cards and expanded forms on the same draft state.
+struct SessionInteractionFields: View {
+    let item: SessionNoticeModel
+    let chat: SessionChatModel
+    var isActive = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let form = item.form {
+                ForEach(form.questions) { question in
+                    questionFields(question)
+                }
+            }
+            ForEach(item.notice.actions.filter { $0.id != item.form?.actionID }) { action in
+                if let schema = action.input.schema,
+                   let form = NoticeActionForm(schema: schema, uiSchema: action.input.uiSchema) {
+                    if !form.fields.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(action.label).font(.subheadline.weight(.medium))
+                            NoticeActionFields(item: item, action: action, form: form, isActive: isActive)
+                                .disabled(chat.isWorking || !chat.session.runtime.isFresh
+                                    || ![.open, .failed].contains(item.notice.status) || item.submission != .idle)
+                        }
+                    }
+                } else if action.input.required {
+                    Text(String(localized: "此操作的表单版本暂未支持，请在 Web 中处理。"))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+    private func questionFields(_ question: NoticeInputQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let header = question.header { Text(header).font(.caption).foregroundStyle(.secondary) }
+            Text(question.prompt).font(.subheadline.weight(.medium))
+            ForEach(question.options) { option in
+                Button { item.select(option.id, question: question) } label: {
+                    HStack(spacing: 10) {
+                        AppSymbol(item.choices[question.id]?.contains(option.id) == true
+                            ? (question.multiple ? "checkmark.square.fill" : "checkmark.circle.fill")
+                            : (question.multiple ? "square" : "circle"))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(option.label).font(.subheadline)
+                            if let detail = option.detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
+                        }
+                        Spacer(minLength: 0)
+                    }.frame(minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+            if question.allowCustom {
+                let selected = item.customQuestions.contains(question.id)
+                HStack(alignment: .top, spacing: 10) {
+                    if !question.options.isEmpty {
+                        Button {
+                            item.setCustomSelected(question.multiple ? !selected : true, question: question)
+                        } label: {
+                            AppSymbol(selected
+                                ? (question.multiple ? "checkmark.square.fill" : "checkmark.circle.fill")
+                                : (question.multiple ? "square" : "circle"))
+                                .frame(width: 28, height: 44)
+                        }
+                        .buttonStyle(.plain).accessibilityLabel(String(localized: "其他回答"))
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                    NoticeTextInput(value: item.custom[question.id] ?? "", isActive: isActive, placeholder: question.options.isEmpty ? String(localized: "回复") : String(localized: "其他回答"),
+                        onFocus: { item.setCustomSelected(true, question: question) },
+                        onEditingEnded: { setComposing(false, id: $0) },
+                        onChange: { text, marked, editorID in
+                            if text != (item.custom[question.id] ?? "") { item.setCustom(text, question: question) }
+                            setComposing(marked, id: editorID)
+                        })
+                }
+            }
+        }
+        // Do not disable the editor merely because its IME has marked text.
+        .disabled(chat.isWorking || !chat.session.runtime.isFresh || ![.open, .failed].contains(item.notice.status) || item.submission != .idle)
+    }
+    private func setComposing(_ marked: Bool, id: String) {
+        if marked { item.composingFields.insert(id) } else { item.composingFields.remove(id) }
+    }
+
+}
+
 private struct NoticeTextInput: View {
     let value: String
+    var isActive = true
     let placeholder: String
     var onFocus: () -> Void = {}
     var onEditingEnded: (String) -> Void = { _ in }
@@ -166,17 +182,37 @@ private struct NoticeTextInput: View {
     @State private var editorID = UUID().uuidString
     @State private var draft = ComposerDraft()
     @State private var editor = ComposerEditorController()
+    @State private var softwareKeyboardVisible = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if draft.text.isEmpty { Text(placeholder).foregroundStyle(.secondary).allowsHitTesting(false) }
-            NativeComposerEditor(draft: draft, controller: editor, maximumHeight: 120,
-                onCommandSend: {}, onTextChange: { text, marked in onChange(text, marked, editorID) })
-                .frame(minHeight: 44)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 4) {
+                NativeComposerEditor(draft: draft, controller: editor, maximumHeight: 120,
+                    onCommandSend: {}, onTextChange: { text, marked in onChange(text, marked, editorID) })
+                    .frame(minHeight: 44)
+                    .fixedSize(horizontal: false, vertical: true)
+                if softwareKeyboardVisible && draft.isFocused {
+                    Button { editor.finishEditing() } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "收起键盘"))
+                    .accessibilityIdentifier("chat.notice.dismissKeyboard")
+                }
+            }
         }
         .font(.body).padding(10).background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
         .onChange(of: draft.isFocused) { _, focused in if focused { onFocus() } }
+        .onChange(of: isActive) { _, active in if !active { editor.finishEditing() } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                  let screen = editor.textView?.window?.screen else { return }
+            softwareKeyboardVisible = frame.height > 0 && frame.minY < screen.bounds.height
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            softwareKeyboardVisible = false
+        }
         .onChange(of: value, initial: true) { _, text in
             if !draft.isComposing, draft.text != text { draft.text = text }
         }
@@ -190,6 +226,7 @@ private struct NoticeActionFields: View {
     let item: SessionNoticeModel
     let action: V2RuntimeNoticeAction
     let form: NoticeActionForm
+    var isActive = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -213,7 +250,7 @@ private struct NoticeActionFields: View {
                 SecureField(field.title, text: Binding(get: { value(field)?.stringValue ?? "" }, set: { set(.string($0), field: field) }))
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             } else {
-                NoticeTextInput(value: value(field)?.stringValue ?? "", placeholder: field.title,
+                NoticeTextInput(value: value(field)?.stringValue ?? "", isActive: isActive, placeholder: field.title,
                     onEditingEnded: { item.composingFields.remove($0) }, onChange: { text, marked, editorID in
                     set(text.isEmpty ? nil : .string(text), field: field)
                     if marked { item.composingFields.insert(editorID) } else { item.composingFields.remove(editorID) }

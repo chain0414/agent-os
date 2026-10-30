@@ -39,11 +39,11 @@ import Testing
         for status in ["open", "failed"] {
             #expect(SessionNoticeModel(try notice(status: status)).canRespond(fresh: true))
         }
-        for status in ["responding", "response_accepted", "resolving"] {
+        for status in ["responding"] {
             let item = SessionNoticeModel(try notice(status: status))
             #expect(item.isVisible && !item.canRespond(fresh: true))
         }
-        for status in ["resolved", "closed", "expired", "cancelled", "future_status"] {
+        for status in ["response_accepted", "resolving", "resolved", "closed", "expired", "cancelled", "future_status"] {
             let item = SessionNoticeModel(try notice(status: status))
             #expect(!item.isVisible && !item.canRespond(fresh: true))
         }
@@ -177,6 +177,33 @@ import Testing
         item.update(try notice(status: "response_accepted", revision: 4))
         item.fail(URLError(.timedOut))
         #expect(item.submission == .accepted)
+    }
+
+    @Test func acceptedAnswersLeaveThePendingCardsWithoutLosingDraftOrAllowingResubmit() throws {
+        let item = SessionNoticeModel(try notice(interaction: "input_request", input: true))
+        item.custom["one"] = "draft answer"
+        item.begin(actionID: "submit")
+        #expect(item.isVisible && item.blocks("session"))
+        item.accepted()
+        #expect(!item.isVisible && !item.blocks("session"))
+        #expect(!item.canRespond(fresh: true))
+        #expect(item.custom["one"] == "draft answer")
+        item.update(try notice(interaction: "input_request", revision: 2, input: true))
+        #expect(!item.isVisible && !item.canRespond(fresh: true))
+        item.update(try notice(interaction: "input_request", status: "failed", revision: 3, input: true))
+        #expect(item.isVisible && item.canRespond(fresh: true))
+        #expect(item.custom["one"] == "draft answer")
+    }
+
+    @Test func externalAcceptedAndResolvedAnswersAreNotPendingButUncertainWritesRemainVisible() throws {
+        for status in ["response_accepted", "resolving", "resolved", "closed", "cancelled", "expired"] {
+            let item = SessionNoticeModel(try notice(interaction: "input_request", status: status, input: true))
+            #expect(!item.isVisible && !item.blocks("session"))
+        }
+        let uncertain = SessionNoticeModel(try notice())
+        uncertain.begin(actionID: "approve"); uncertain.fail(URLError(.timedOut))
+        #expect(uncertain.submission == .uncertain && uncertain.isVisible)
+        #expect(!uncertain.canRespond(fresh: true))
     }
 
     @Test func missingNoticeIsRemovedUntilNewAuthoritativeRevision() throws {

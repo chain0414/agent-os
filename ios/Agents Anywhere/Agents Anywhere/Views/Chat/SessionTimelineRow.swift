@@ -8,12 +8,14 @@ struct SessionTimelineRow: View, Equatable {
     var cwd: String?
     let disclosures: TimelineDisclosureState
     let onFile: (String) -> Void
+    var omitsAssistantText = false
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     /// Observation still re-evaluates this row when its own model changes; the
     /// comparison only stops sibling invalidations from reaching every row.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row === rhs.row && lhs.chat === rhs.chat && lhs.cwd == rhs.cwd && lhs.disclosures === rhs.disclosures
+            && lhs.omitsAssistantText == rhs.omitsAssistantText
     }
 
     var body: some View {
@@ -21,11 +23,15 @@ struct SessionTimelineRow: View, Equatable {
             switch row.value.content {
             case let .message(message):
                 let files = chat.session.attachmentPreviews.resolve(message.attachments, clientID: row.value.source["clientMessageId"]?.stringValue)
-                if row.value.role == .user {
-                    UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail)
+                if let instruction = row.automationInstruction {
+                    AutomationInstructionDisclosure(instruction: instruction, itemID: row.id, disclosures: disclosures)
+                } else if row.value.role == .user {
+                    UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail,
+                        expansion: chat.session.userMessageExpansion,
+                        messageKey: UserMessageExpansionStore.key(itemID: row.id, clientMessageID: row.value.source["clientMessageId"]?.stringValue))
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        markdown
+                        if !omitsAssistantText { markdown }
                         if !files.isEmpty {
                             ChatMessageAttachments(files: files, onOpen: onAttachment, loadThumbnail: chat.thumbnail, alignment: .leading)
                         }
@@ -45,6 +51,7 @@ struct SessionTimelineRow: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.chatLayoutTraceOwner, row.id)
         .traceChatLayout("row:\(row.id)", state: "generation=\(row.layoutGeneration), status=\(row.value.status.rawValue)")
         // Long presses belong to the text selection interaction inside the row.
         // A row-wide context menu would intercept them and highlight the item.
@@ -58,6 +65,46 @@ struct SessionTimelineRow: View, Equatable {
     }
 }
 
+/// Keep a visible cause for scheduled work while the potentially long prompt is
+/// collapsed. Its own disclosure key survives message revisions and rotation.
+private struct AutomationInstructionDisclosure: View {
+    let instruction: TimelineAutomationInstruction
+    let itemID: String
+    let disclosures: TimelineDisclosureState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var key: String { "automation:\(itemID)" }
+    var body: some View {
+        let expanded = disclosures.isExpanded(key)
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { disclosures.toggle(key) }
+            } label: {
+                HStack(spacing: 10) {
+                    AppSymbol("clock", size: 16)
+                    Text(String(localized: "自动化任务")).font(.subheadline)
+                    Spacer(minLength: 12)
+                    if let timestamp = instruction.timestamp {
+                        Text(timestamp, format: .dateTime.hour().minute())
+                            .font(.caption).monospacedDigit()
+                    }
+                    AppSymbol("chevron.down", size: 11).rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .foregroundStyle(.secondary).padding(.horizontal, 16).frame(minHeight: 48)
+                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 16))
+                .contentShape(.rect(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(expanded ? String(localized: "已展开") : String(localized: "已折叠"))
+            .accessibilityIdentifier("chat.automation.disclosure")
+            if expanded {
+                ChatMarkdownView(text: instruction.text, isStreaming: false, resolvesFileReferences: true)
+                    .padding(.horizontal, 12)
+                    .accessibilityIdentifier("chat.automation.instructions")
+            }
+        }
+    }
+}
+
 struct UserMessageBubble: View {
     let text: String
     var attachments: [ChatMessageAttachment] = []
@@ -65,6 +112,9 @@ struct UserMessageBubble: View {
     var loadThumbnail: (V2AttachmentContent) async throws -> Data? = { _ in nil }
     var isPending = false
     var onDeliveryIssue: (() -> Void)?
+    var expansion: UserMessageExpansionStore?
+    var messageKey = ""
+    @State private var availableWidth: CGFloat = 300
     @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -74,7 +124,11 @@ struct UserMessageBubble: View {
                     ChatMessageAttachments(files: attachments, onOpen: onAttachment, loadThumbnail: loadThumbnail)
                 }
                 if !text.isEmpty {
-                    ChatSelectableText(text: text).font(.body)
+                    Group {
+                        if let expansion {
+                            UserMessageText(text: text, availableWidth: max(1, availableWidth - 48 - 34 - 8), expansion: expansion, messageKey: messageKey)
+                        } else { ChatSelectableText(text: text).font(.body) }
+                    }
                         .padding(.horizontal, 17).padding(.vertical, 12)
                         .background(colorScheme == .dark ? Color(white: 0.13) : Color(white: 0.94), in: .rect(cornerRadius: 24))
                 }
@@ -92,6 +146,7 @@ struct UserMessageBubble: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     }
 }
 
@@ -105,7 +160,9 @@ struct PendingMessageRow: View {
         UserMessageBubble(text: pending.content,
             attachments: chat.session.attachmentPreviews.resolve(pending.attachments.map(\.content), clientID: pending.id),
             onAttachment: onAttachment, loadThumbnail: chat.thumbnail, isPending: pending.delivery == .sending || pending.delivery == .accepted,
-            onDeliveryIssue: deliveryIssue == nil ? nil : { confirmsDismiss = true })
+            onDeliveryIssue: deliveryIssue == nil ? nil : { confirmsDismiss = true },
+            expansion: chat.session.userMessageExpansion,
+            messageKey: UserMessageExpansionStore.key(itemID: pending.id, clientMessageID: pending.id))
         .confirmationDialog(deliveryIssue ?? "", isPresented: $confirmsDismiss, titleVisibility: .visible) {
             Button(String(localized: "返回编辑")) {
                 if chat.session.isLocalCreation { chat.onEditCreation?(pending) }

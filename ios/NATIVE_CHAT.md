@@ -12,6 +12,12 @@ Semantic error and availability colors remain separate from the primary color.
 
 ## Composer and timeline
 
+- 用户输入默认预览 8 行，可展开到 24 行或全文并收起；附件独立显示，隐藏后缀不进入选区，全文可单独复制。展开等级由会话保存，pending 回显沿用同一 client ID。
+- 输入区与审批输入区提供系统键盘收起按钮；空白点击通过会话局部的当前编辑器路由结束编辑，保留草稿／附件。消息滚动区保留交互式下拉收起，Return 仍换行。
+- 完整已知自动化消息只去掉控制包装，用户 instructions 与助手 message 正文继续显示，DONT_NOTIFY 不删除聊天正文；「显示自动化记录」恢复原文。分页首部缺前置指令也可独立解包；未知、损坏、运行中、失败或带附件的消息原样保留，待处理事项不删除；原始导出不变。
+- 时间线使用单一根级懒加载布局。assistant 正文达到 16,000 UTF-8 bytes 后，完整 Markdown 结构块成为直接条目，复用后台增量解析；附件／错误／通知／操作只保留一次。单个巨大段落、列表或代码块仍整体布局，并非任意文本的逐行虚拟化。
+- 展示模型、长回复解析缓存与段落阅读锚点随会话保留；旋转使用段落 ID 与段内相对位置恢复。实测与未覆盖范围见[本轮验收记录](../docs/performance/ios-conversation-2026-10-29.md)。
+
 - The empty, unfocused composer is a pill with the same 48-point base height as
   the header controls and 32-point horizontal insets (eight points narrower on
   each side than before). Focus, any text (including whitespace), or attachments
@@ -74,9 +80,11 @@ Semantic error and availability colors remain separate from the primary color.
   parent updates from constructing and discarding another chat model. Cached
   preparation still reads the repository without requesting history again.
   A sidebar gesture after loading starts does not restart the connection.
-  Opening retains only the latest 100 timeline records, including cached visits.
+  A fresh opening retains the latest 100 timeline records, including cached visits.
   Older records are loaded explicitly in 100-record pages and accumulate during
-  that visit. Reopening trims the window again and preserves the older-history
+  that visit. Reopening while following the bottom trims the window again; a
+  compact/split layout replacement while reading preserves the loaded window and
+  its paragraph anchor. Trimming preserves the older-history
   flag; recovery updates cannot reinsert rows before its pagination boundary.
   Opening reveals the window when the initial projection is
   ready, and animates to the native bottom edge. It never pages backward to
@@ -144,6 +152,25 @@ Semantic error and availability colors remain separate from the primary color.
   a page is prepended, without counting streamed tail growth or aligning a whole
   group to the top. The final page keeps the prompt's height as a start-of-session
   marker, preventing a second jump when loading ends.
+
+### 语音输入
+
+新会话和已有会话的输入框旁都有麦克风按钮：点按开始，语音处理中麦克风使用固定淡蓝色（`#66B3FF`），同色外圈向外扩散并淡出，不额外显示录音状态或取消按钮文字（系统开启「减弱动态效果」时保持静态圆环）。录音中可直接点发送：立即结束采集，收齐最终转写后发送一次，无需先手动停止；也可再次点麦克风结束，检查、修改文字后发送。录音与收尾期间暂停编辑，收尾期间暂停重复发送；状态仍供 VoiceOver 播报，录音时提供无障碍取消操作，取消恢复录音前的文字，附件保持不变。离开页面、进入后台或音频中断时停止采集并保留已经显示的文字。
+
+已有会话只因尚未接管而不能发送时，录音中的发送按钮也可操作：用户点击后先结束录音并收齐最终文字，再按需接管、重新核对最新发送权限后投递；失败保留草稿并提示，不重复接管或投递。离线、阻塞请求、Runtime 不支持或仍拒绝发送时保留原有限制。Agent 运行中录音时，按钮优先用于发送，不误触「停止生成」；最终仍由有效能力决定是否允许消息交付。提交任务绑定输入框页面，离开页面或切换草稿会取消待提交操作。
+
+识别使用阿里云百炼 `qwen-audio-3.0-asr-flash-streaming`。Server 2.2 的语音凭证接口保存永久 Key，并向已登录账户签发短期凭证；手机通过 WebSocket 直接上传音频到阿里云。首次无需下载模型，但必须联网并允许麦克风权限；音频和临时凭据不落盘，Server、Codex 和 DSH 不接收录音。识别语言显式包含中文与英文，不受键盘语言影响。
+
+音频和网络会话由识别服务管理，界面状态及草稿由 `ComposerVoiceInput` 管理。权限获准后即开始采集，凭证和连接准备期间缓存首段音频；准备和收尾均有超时，缓冲有上限。回调绑定到单次录音和草稿，中文候选文字未确认时不启动录音，开始前保存 UTF-16 选区。转写按句子 ID 替换中间结果，最终全空时撤回已显示的暂定文字并恢复原稿。收到阿里云结束确认前不能发送；失败保留已有文字并允许重试。
+
+本功能的测试边界：SwiftPM 使用假识别器检查取消、迟到回调、草稿替换、Unicode 选区、发送保护和中间结果合并；`Tests/VoiceInputProbe.swift` 使用真实输入框与合成 ASR 事件检查模拟器界面。后者不访问网络、不录音、不发送消息，运行方式：
+
+```sh
+python3 ios/scripts/probe-voice-input.py --device <booted-simulator-udid> --output ios/.build/voice-probe
+xcrun simctl launch <booted-simulator-udid> com.agentsanywhere.voice-input-probe recording
+```
+
+可传入 `empty-new-session`、`recording`、`finishing`、`preparing`、`narrow`、`large` 和 `error` 查看不同合成状态，或用 `final-revision`、`final-failure`、`no-speech` 检查直接发送是否等到最终文字、失败和空结果是否保持未发送；`send-finishing` 检查等待收尾时不重复发送，`empty-recording` 检查首个结果前发送，`disabled-target` 检查目标不可发送，`running-recording` 检查 Agent 运行中录音仍发送而不触发停止。探针显示实际原生编辑器读取的文本与发送次数，不向 Agent 投递。真机麦克风、中文与英文混说的准确率、弱网、蓝牙切换以及真实 Agent 投递仍需验证；合成结果不能证明这些能力已经通过。接口和部署配置见 [语音输入凭证](../docs/api/speech.md)。
 
 ## Session presentation and files
 
@@ -790,3 +817,17 @@ keyboard layout and real mobile-network behavior still need manual validation:
     client message identity after confirmation, and failure editing/retry. Kill
     the app during a send: reopen must retain an uncertain record without sending
     again. Verify that the earlier completed reply keeps Copy/Share throughout.
+
+## 待处理交互
+
+当前轮次的非阻塞输入与仍未结束的阻塞交互在输入框上方共用一个水平分页区域，带序号和左右按钮；切页保留每项草稿。已接受或终态请求退出卡片，失败及不确定结果保留恢复入口。交互不再同时挂在时间线／末尾重复显示；普通通知仍在原位置。展开特定请求后，该请求结束会自动关闭表单。
+
+历史非阻塞请求不再追加／固定到最新底部，继续对话后可从「会话菜单 → 交互与通知」查看，状态不伪造为 resolved；阻塞审批不受历史窗口影响。时间线跟随策略只参考实际显示的当前卡片，避免旧请求阻止跟随新消息。
+
+输入请求在卡片内直接显示问题、选项和回答编辑器，提交为小型箭头按钮，取消与详情位于更多菜单。长表单可展开；横屏使用紧凑输入入口打开全高表单，切页结束旧页编辑焦点并保留草稿；审批请求仍保留明确操作。分页共用一个圆角玻璃背景，并在同一圆角边界裁切页面内容，避免翻页时每页玻璃背景露出矩形边角。
+
+执行过程组默认以「已完成，用时 …」和向下箭头折叠，展开保留工具明细。仅读取原生轮次耗时；同轮多个工具不累加，多个过程段只在最后一段显示整轮耗时。缺少时间只显示状态，不使用 Server 入库时间；执行中、失败、取消和中断保留对应状态。
+
+自动化用户指令默认显示带原生时间的「自动化任务」折叠栏，展开保留完整指令，助手结果继续显示；原文开关退出该折叠呈现。Codex 识别完整 heartbeat，DSH 使用明确的 schedule 内容标记，不按任意文本猜测自动化。标准 Markdown 链接保持原支持；整个行内代码若恰为 HTTP(S) URL，则保留代码外观并补为链接，代码块／命令／本地路径不受影响。
+
+会话标题组在实际手动滚动／惯性滚动时向下展开，停稳 1.5 秒后向上收起；固定区域内的纵向裁切、少量位移与轻微淡化采用 0.42 秒缓入缓出。顶部材质先建立，在标题收起完成后再淡出，避免文字仍可见时正文提前透出；反向滚动取消旧的延迟淡出。自动跟随消息不唤醒或延后隐藏。原生工具栏高度不变，侧栏、文件和菜单按钮常驻，正文不随标题收放跳动。顶部独立渐变材质板位于导航栏下、正文上，副标题增强对比度；状态栏保持基础遮罩。开启 VoiceOver 时标题常显，减少动态效果时取消动画及位移，减少透明度时使用不透明底色。非会话页面维持原有标题行为。

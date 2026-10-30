@@ -58,13 +58,17 @@ struct NewSessionView: View, Equatable {
                         .padding(.bottom, 6)
                 ChatComposerDock(draft: model.draft, settings: model.settings,
                     maximumEditorHeight: min(160, max(72, geometry.size.height * 0.30)), controls: controls,
-                    canSend: model.canCreate, canAttach: model.canAttach && model.prepared != nil,
+                    canSend: model.canSubmitDraft, canAttach: model.canAttach && model.prepared != nil,
                     canSelectModel: model.prepared?.capabilities.allows("catalog.model") == true,
                     canSelectPermission: model.prepared?.capabilities.allows("catalog.permission") == true,
                     isBusy: model.isCreating, isLoadingSettings: model.isPreparing,
                     onSend: { text in if let session = await model.create(text: text) { onCreated(session) } },
                     onApplySettings: { model.saveSelections(); return true },
-                    onDraftChange: { model.scheduleDraftSave() })
+                    onDraftChange: { model.scheduleDraftSave() },
+                    credentials: { @MainActor @Sendable [weak service = appState.nativeChatServices?.speech] in
+                        guard let service else { throw ComposerSpeechFailure.authenticationFailed }
+                        return try await service.credentials()
+                    })
                 }
                 .frame(maxWidth: ChatControlMetrics.maximumContentWidth).frame(maxWidth: .infinity)
             }

@@ -30,6 +30,9 @@ from connector.runtime_protocol.models import (
 )
 from connector.runtimes.codex import timeline as codex_timeline
 from connector.runtimes.codex.domain import sessions as codex_sessions
+from connector.runtimes.codex.domain.input_requests import (
+    is_async_input_request_context,
+)
 from connector.runtimes.codex.domain.pending_messages import (
     PendingClientMessageRegistry,
 )
@@ -632,11 +635,23 @@ class CodexSessionReader:
         *,
         force: bool = False,
     ) -> None:
+        # A desktop answer can arrive while this connector is not following the
+        # thread. A previous full scan is not proof that its open questionnaires
+        # are still pending: replay the authoritative replies on the next notice
+        # read. Completed threads retain the cheap, already-scanned path.
+        has_pending_async_input = self.notice_handler is not None and any(
+            is_async_input_request_context(notice.context)
+            for notice in self.notice_handler.notices.current_for_session(session_id)
+        )
         if (
             self.notice_handler is None
             or self.client is None
             or external_session_id is None
-            or (not force and external_session_id in self._async_notice_threads)
+            or (
+                not force
+                and external_session_id in self._async_notice_threads
+                and not has_pending_async_input
+            )
         ):
             return
         try:

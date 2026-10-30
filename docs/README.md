@@ -19,8 +19,10 @@
 | DSH 大历史内存 | [实现与验证](dsh-snapshot-uploads.md) |
 | DSH 慢速历史上传 | [实现与验证](dsh-slow-upload.md)、[2.1.0 发布说明](releases/2.1.0.md) |
 | 长会话流式更新卡顿 | [客户端优化方案与验证](performance/streaming-timeline-83.md) |
+| iOS 会话阅读、输入与旋转优化 | [优化方案](plans/2026-10-29-ios-conversation-optimization.md) |
+| 追踪 Wayne 提出的改动 | [Wayne 改动记录](wayne-change-requests.md) |
 | Runtime 和本机协议 | [Runtime protocol](runtime-protocol/README.md)、[Timeline 工具身份](runtime-protocol/timeline-identity.md)、[本机协议](../contracts/local-machine/2.0/README.md)、[Codex IPC 接管](codex-ipc-takeover.md) |
 
-当前开发版本为 2.1，开发主线为 `main`。API 路径使用 `/api/v2`，数据库修订号独立管理，版本号含义见[版本号规则](versioning.md)。已发布安装包的功能范围见发布说明。
+当前开发版本为 2.2，开发主线为 `main`。API 路径使用 `/api/v2`，数据库修订号独立管理，版本号含义见[版本号规则](versioning.md)。已发布安装包的功能范围见发布说明。
 
 `docs/migrations/main-to-v2/` 保留早期迁移设计与历史基线。其旧版本号、移动端完成度和 Redis 策略不能替代当前升级指南。带 proposal、plan、target、gap 的文档描述设计或特定时间点的差距，使用前应与源码和契约核对。

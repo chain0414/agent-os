@@ -11,6 +11,7 @@ final class V2ClientServices {
     let scope: V2ClientScope
     let sessionRepository: V2SessionRepository
     let sessionPreparation: V2SessionPreparationService
+    let speech: V2SpeechService
     let account: V2AccountService
     let dashboard: V2DashboardService
     let dashboardRepository: V2DashboardRepository
@@ -33,6 +34,7 @@ final class V2ClientServices {
             .appendingPathComponent(V2RestorationStore.scopeKey(scope))
         localStore = V2LocalStore(directory: cacheDirectory)
         sessionPreparation = V2SessionPreparationService(connectorAPI: api.connectors)
+        speech = V2SpeechService(speechAPI: api.speech)
         account = V2AccountService(accountAPI: api.account)
         dashboard = V2DashboardService(
             connectorAPI: api.connectors,
@@ -137,6 +139,7 @@ final class V2ClientServices {
         onSelectPage = nil; onCreationBound = nil
         newSession.onStaged = nil; newSession.onBound = nil; newSession.onFailed = nil; newSession.onProjectResolved = nil
         Task { await localStore.close(removing: removingCache) }
+        speech.invalidate()
         agentSetup.invalidate()
         agentModels.values.forEach { $0.invalidate() }; agentModels = [:]
         dashboardRepository.invalidate()

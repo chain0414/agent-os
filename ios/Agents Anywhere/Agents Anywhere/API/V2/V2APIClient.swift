@@ -2,6 +2,7 @@ import Foundation
 
 struct V2APIClient {
     let serverURL: URL
+    let speech: V2SpeechAPI
     let account: V2AccountAPI
     let connectors: V2ConnectorAPI
     let projects: V2ProjectAPI
@@ -24,6 +25,7 @@ struct V2APIClient {
             urlSession: session,
             tokenProvider: tokenProvider
         )
+        speech = V2SpeechAPI(transport: transport)
         account = V2AccountAPI(transport: transport)
         connectors = V2ConnectorAPI(transport: transport)
         projects = V2ProjectAPI(transport: transport)

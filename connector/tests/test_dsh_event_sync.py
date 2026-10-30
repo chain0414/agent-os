@@ -90,7 +90,7 @@ def test_snapshot_abort_foreign_items_and_duplicate_pages_do_not_publish_partial
 
 
 @pytest.mark.parametrize("reject", [False, True])
-@pytest.mark.parametrize("projection_version", [2, 3])
+@pytest.mark.parametrize("projection_version", [2, 3, 4, 5])
 def test_relay_failure_resubscribes_without_closing_concurrent_rpc(reject, projection_version):
     async def exercise():
         entered, release = asyncio.Event(), asyncio.Event()
@@ -375,3 +375,24 @@ def test_snapshot_pages_and_aborts_from_another_capture_are_ignored():
         ]
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("projection_version", [6, 99])
+def test_subscription_rejects_unknown_future_projection_version(projection_version):
+    async def run():
+        async def stream(method, params=None):
+            assert method == "sync"
+            yield {"kind": "subscribed", "projectionVersion": projection_version, "checkpointVersion": 1}
+
+        registry = SubscriptionRegistry()
+        client = SimpleNamespace(stream=stream, connected=True, host=SimpleNamespace(registry=registry))
+        relay = SyncRelay(client, SimpleNamespace(runtime_health_update=AsyncMock()))
+        try:
+            with pytest.raises(ValueError, match="Unsupported DSH projection version"):
+                await relay.subscribe()
+            assert relay.projection_version is None
+            assert not relay.durable_checkpoints
+            assert relay.subscription_id is None
+        finally:
+            await relay.close()
+    asyncio.run(run())

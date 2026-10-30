@@ -69,6 +69,22 @@ import Testing
         #expect(model.refreshKey != initial)
     }
 
+    @Test func voiceCanOfferSendBeforeTranscriptButCreationWaitsAndRechecksConnectivity() async throws {
+        let http = transport(); let model = make(http)
+        await model.refresh(connectors: try devices()); _ = model.selectProject("project")
+        #expect(model.draft.text.isEmpty && model.canSubmitDraft && !model.canCreate)
+        model.draft.isVoiceInputActive = true
+        model.draft.text = "尚未确认的转写"
+        #expect(model.canSubmitDraft && !model.canCreate)
+        #expect(await model.create(text: model.draft.text) == nil)
+        #expect(http.count("create-and-start") == 0)
+        model.updateNetwork(.init(availability: .offline))
+        model.draft.isVoiceInputActive = false
+        #expect(!model.canSubmitDraft && !model.canCreate)
+        #expect(await model.create(text: model.draft.text) == nil)
+        #expect(http.count("create-and-start") == 0)
+    }
+
     @Test func creationStagesBeforeNetworkAndKeepsOneClientIDThroughBinding() async throws {
         let http = transport(); let model = make(http); let gate = TestGate()
         model.draft.text = "Start now"

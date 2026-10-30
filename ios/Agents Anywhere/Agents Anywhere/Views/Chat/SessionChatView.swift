@@ -11,6 +11,7 @@ struct SessionChatView: View, Equatable {
     @State private var expandedNoticeID: String?
     private let fileService: V2WorkspaceFilesService
     private let detailService: V2SessionDetailService
+    private let speechService: V2SpeechService
     private enum SessionSheet: Identifiable {
         case notices, details, files, preview(SessionFileReference, root: String? = nil)
         var id: String { switch self { case .notices: "notices"; case .details: "details"; case .files: "files"; case .preview(let reference, let root): "file:\(root ?? ""):\(reference.id)" } }
@@ -21,6 +22,9 @@ struct SessionChatView: View, Equatable {
     @State private var toasts = ChatToastStore()
     @State private var pendingTakeover: Bool?
     @State private var hasStartedLoading = false
+    @State private var keyboardRouter = ChatKeyboardDismissalRouter()
+    @State private var titleVisibility = ChatTitleVisibility()
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var takeoverPillHeight: CGFloat = 32
@@ -39,6 +43,7 @@ struct SessionChatView: View, Equatable {
         sessionIdentity = session
         self.deviceName = deviceName
         fileService = services.workspaceFiles; detailService = services.sessionDetail
+        speechService = services.speech
         self.onMenu = onMenu
     }
     private var controls: ChatControlMetrics { .init(bodyLineHeight: bodyLineHeight) }
@@ -74,16 +79,17 @@ struct SessionChatView: View, Equatable {
                             .traceChatLayout("interaction-dock")
                         ChatComposerDock(draft: session.composer, settings: model.settings,
                             maximumEditorHeight: min(160, max(72, geometry.size.height * 0.30)), controls: controls,
-                            canSend: session.canSend, canAttach: model.canAttach,
+                            canSend: model.canRequestSend, canAttach: model.canAttach,
                             canSelectModel: session.runtime.allows("catalog.model"),
                             canSelectPermission: session.runtime.allows("catalog.permission"),
                             isStreaming: model.isRunning, canStop: session.runtime.allows("session.interrupt"),
-                            isBusy: model.isWorking || !model.isOpeningReady, placeholder: requiresTakeover ? String(localized: "请先接管") : String(localized: "询问 Agents"),
+                            isBusy: model.isWorking || !model.isOpeningReady, placeholder: requiresTakeover && !model.canRequestSend ? String(localized: "请先接管") : String(localized: "询问 Agents"),
                             isLoadingSettings: model.isLoadingSettings,
                             settingsError: model.settingsError, sessionChat: model,
-                            onSend: model.send, onStop: model.interrupt, onLoadSettings: model.loadSettings,
+                            onSend: model.sendFromComposer, onStop: model.interrupt, onLoadSettings: model.loadSettings,
                             onApplySettings: model.applySettings, applyError: { model.settingsError },
-                            onDraftChange: { model.repository.draftDidChange(sessionID: model.session.id) })
+                            onDraftChange: { model.repository.draftDidChange(sessionID: model.session.id) },
+                            credentials: { try await speechService.credentials() })
                             .traceChatLayout("composer-dock")
                     }
                     .frame(maxWidth: ChatControlMetrics.maximumContentWidth).frame(maxWidth: .infinity)
@@ -105,20 +111,40 @@ struct SessionChatView: View, Equatable {
                     }.padding(.top, 8)
                 }
         }
+        .environment(\.chatKeyboardDismissalRouter, keyboardRouter)
+        .environment(\.chatTitleVisibility, titleVisibility)
+        .onAppear { titleVisibility.begin() }
+        .onDisappear { titleVisibility.end() }
+        .onChange(of: voiceOverEnabled, initial: true) { _, enabled in titleVisibility.setAlwaysVisible(enabled) }
+        .environment(\.dismissChatKeyboard) {
+            keyboardRouter.dismiss()
+            session.composer.isFocused = false
+        }
         .modifier(ChatPageToolbar(title: session.metadata?.title ?? String(localized: "会话"),
             subtitle: [session.metadata?.runtimeName ?? session.metadata?.runtime ?? String(localized: "Agent"),
                 deviceName ?? session.metadata?.connectorId].compactMap { $0 }.joined(separator: " · "),
-            status: model.headerStatus, alignsTitleLeading: true, onMenu: onMenu))
+            status: model.headerStatus, alignsTitleLeading: true, titleVisibility: titleVisibility, onMenu: onMenu))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { sheet = .files } label: { AppSymbol("folder") }
                     .accessibilityLabel(String(localized: "文件管理"))
+                    .accessibilityIdentifier("chat.header.files")
                     .disabled(session.metadata?.cwd?.isEmpty != false)
                 Menu {
                     Button(String(localized: "会话详情与导出"), systemImage: "info.circle") { sheet = .details }
+                    if session.notices.notices.contains(where: \.isVisible) {
+                        Button(String(localized: "交互与通知"), systemImage: "bubble.left.and.bubble.right") {
+                            expandedNoticeID = nil
+                            sheet = .notices
+                        }.accessibilityIdentifier("chat.session.notices")
+                    }
+                    Toggle(String(localized: "显示自动化记录"), isOn: Binding(
+                        get: { model.timeline.showsAutomationRecords },
+                        set: { model.timeline.showsAutomationRecords = $0 }))
                     Button(String(localized: "复制会话 ID"), systemImage: "number") { UIPasteboard.general.string = session.id }
                 } label: { AppSymbol("ellipsis") }
                 .accessibilityLabel(String(localized: "会话菜单"))
+                .accessibilityIdentifier("chat.header.menu")
             }
         }
         .modifier(SessionTakeoverConfirmation(pending: $pendingTakeover, isDsh: model.isDsh) { enabled in

@@ -21,6 +21,7 @@ from connector.runtimes.codex.timeline.identity import (
     turn_position_item_id,
     uses_turn_position_identity,
 )
+from connector.runtimes.codex.timeline.timing import native_turn_timing
 
 
 @dataclass(slots=True)
@@ -92,6 +93,32 @@ class CodexTimelineAccumulator:
                     event=event,
                 )
             )
+        return tuple(items)
+
+    def finish_turn_timing(
+        self, session_id: str, external_session_id: str, event: CodexSdkEvent
+    ) -> tuple[RuntimeTimelineItem, ...]:
+        turn = event.params.get("turn")
+        if not isinstance(turn, Mapping):
+            return ()
+        timing = native_turn_timing(turn)
+        turn_id = codex_sessions.turn_id_from_result(turn)
+        state = self._active_turn_state(external_session_id, turn_id)
+        if timing is None or state is None:
+            return ()
+        items = []
+        for item_id in sorted(
+            state.platform_item_ids, key=lambda value: self._order_by_id.get(value, 0)
+        ):
+            projection = self._projection_by_id.get(item_id)
+            if projection is None:
+                continue
+            projection = projection.with_turn_timing(timing)
+            self._projection_by_id[item_id] = projection
+            items.append(self._runtime_item(
+                session_id=session_id, external_session_id=external_session_id,
+                projection=projection, event=event.event_type,
+            ))
         return tuple(items)
 
     def _release_turn(
@@ -631,6 +658,8 @@ def positioned_raw_snapshot_items(
             next_position_by_lane: dict[str, int] = {}
             for raw_item in codex_timeline.raw_timeline_items(turn):
                 raw = dict(raw_item)
+                if timing := native_turn_timing(turn):
+                    raw["turnTiming"] = timing
                 if (
                     turn_id is not None
                     and codex_timeline.timeline_item_turn_id(raw) is None

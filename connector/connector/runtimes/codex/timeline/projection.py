@@ -91,6 +91,7 @@ class CodexTimelineProjection:
     explicit_derived_key: str | None = None
     attachments: tuple[Mapping[str, Any], ...] = ()
     revision: int = 1
+    turn_timing: Mapping[str, Any] | None = None
 
     def with_client_message_id(self, client_message_id: str) -> CodexTimelineProjection:
         return replace(
@@ -123,6 +124,9 @@ class CodexTimelineProjection:
 
     def with_turn_position(self, turn_position: int) -> CodexTimelineProjection:
         return replace(self, turn_position=turn_position)
+
+    def with_turn_timing(self, timing: Mapping[str, Any]) -> CodexTimelineProjection:
+        return replace(self, turn_timing=dict(timing))
 
     def with_text(self, text: str) -> CodexTimelineProjection:
         return replace(self, text=text)
@@ -187,6 +191,9 @@ class CodexTimelineProjection:
             timeline_item_type_from_raw_type(native_type)
         )
         item_class = codex_timeline_item_class(native_type)
+        content = dict(self.content_mapping())
+        if self.turn_timing is not None:
+            content["turnTiming"] = dict(self.turn_timing)
         return item_class(
             id=self.item_id(
                 external_session_id=external_session_id,
@@ -201,7 +208,7 @@ class CodexTimelineProjection:
             content=codex_timeline_content_from_mapping(
                 native_item_type=native_type,
                 platform_item_type=platform_item_type,
-                content=self.content_mapping(),
+                content=content,
             ),
             source=TimelineSource(runtime="codex"),
             revision=self.revision,
@@ -579,6 +586,7 @@ def timeline_projection_from_raw(raw: Mapping[str, Any]) -> CodexTimelineProject
         explicit_derived_key=explicit_derived_key(raw_dict),
         attachments=attachments_from_raw(raw_dict, raw_type),
         revision=timeline_item_revision(raw_dict),
+        turn_timing=raw_dict.get("turnTiming") if isinstance(raw_dict.get("turnTiming"), Mapping) else None,
     )
 
 

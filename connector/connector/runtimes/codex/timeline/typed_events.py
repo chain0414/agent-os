@@ -65,6 +65,7 @@ from connector.runtimes.codex.timeline.identity import (
     uses_turn_position_identity,
 )
 from connector.runtimes.codex.timeline.projection import CodexTimelineProjection
+from connector.runtimes.codex.timeline.timing import native_turn_timing
 from connector.runtimes.codex.timeline.web_search import web_search_values
 
 
@@ -165,6 +166,12 @@ def timeline_projections_from_sdk_thread(
 ) -> tuple[CodexTimelineProjection, ...]:
     projections: list[CodexTimelineProjection] = []
     for turn in thread.turns:
+        timing = native_turn_timing({
+            "startedAt": turn.started_at,
+            "completedAt": turn.completed_at,
+            "durationMs": turn.duration_ms,
+            "status": turn.status.value,
+        })
         next_position_by_lane: dict[str, int] = {}
         for item in turn.items:
             projection = timeline_projection_from_thread_item(
@@ -173,6 +180,8 @@ def timeline_projections_from_sdk_thread(
                 event_status=None,
             )
             if projection is not None:
+                if timing is not None:
+                    projection = projection.with_turn_timing(timing)
                 if uses_turn_position_identity(
                     projection.raw_type, projection.effective_role()
                 ):
