@@ -5,6 +5,30 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct ChatSessionPolishTests {
+    @Test func rebuildingLayoutWhileReadingDoesNotTrimTheLoadedHistoryWindow() async throws {
+        let http = TestHTTPTransport()
+        http.respond = { call in
+            guard call.path.hasSuffix("snapshot") else { return try http.defaultResponse(call) }
+            var snapshot = try fixtureObject("snapshot")
+            var timeline = snapshot["timeline"] as! [String: Any]
+            timeline["items"] = try (1...300).map { try itemObject(id: "reply-\($0)", order: $0) }
+            snapshot["timeline"] = timeline
+            return try JSONSerialization.data(withJSONObject: snapshot)
+        }
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let data = try await repo.load(sessionId: "session")
+        let session = repo.session(id: "session")
+        session.chatTimeline.presentOpening(data.items, pendingMessages: [])
+        session.readingAnchor.measure(id: "reply-100", y: 0, height: 100, width: 350, isParagraph: false)
+        session.readingAnchor.capture(top: 50, width: 350, following: false)
+        let model = SessionChatModel(session: session, repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        await model.prepareOpening()
+        #expect(model.isOpeningReady)
+        #expect(model.timeline.rows.count == 300)
+        #expect(repo.cached(sessionId: "session")?.items.count == 300)
+    }
     private func chat(_ http: TestHTTPTransport) -> SessionChatModel {
         let repo = repository(transport: http)
         return SessionChatModel(session: repo.session(id: "session"), repository: repo,

@@ -62,6 +62,7 @@ API key 形如 `mk_<id>_<随机 hex>`，Router 按 id 查表并比对 SHA-256。
 | `ingestSnapshot` | 客户端流 | 请求 `{captureId, subscriptionId, sessionId, meta, throughSeq}` + 页流 `{captureId, items[]}` → `{accepted, quarantined, reason?}` |
 
 - 批次按 `batchSeq` 严格递增；乱序或 `subscriptionId` 未知是错误，由插件重新订阅。
+- Connector 接受已实现的投影版本 `2`、`3`、`4`、`5`：`4` 补传原生轮次耗时，`5` 保留定时任务输入；批次与订阅声明必须同版，未知未来版本继续拒绝。检查点格式仍为 `version:1`，投影递进不改变此处 wire 结构或校验要求。
 - 检查点只在覆盖的历史被 Server 接受之后保存；被隔离的会话不保存检查点。
 - 快照页流可取消（调用取消即中止）；`captureId` 让被取消的旧流无法污染下一次捕获。提交被永久拒绝时返回 `accepted:false` 并给出隔离原因 `history_too_large` / `history_rejected`。
 - 隔离、退避重捕（30 s 起，超大 5 min 起，上限 30 min）、健康上报（`starting/syncing → running`）、单会话失败隔离与 1.0 相同。

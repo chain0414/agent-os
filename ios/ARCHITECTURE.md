@@ -86,6 +86,10 @@ as network updates. Views never own a second session socket or network reducer.
   stable rendered rows once the previous reveal batch ends (about every 257 ms,
   roughly 4 Hz; text after a pause publishes at once). Its idle clock sleeps. Initial/recovered history
   and live token appends have distinct presentation semantics.
+  It is held by `V2SessionModel`, together with message expansion and reading
+  anchors, so compact/split view replacement retains the loaded reading window.
+  Large assistant replies keep parsed Markdown snapshots on their row; the
+  timeline renders those blocks as direct targets of its one lazy layout.
 - `SessionNoticeStore` owns stable form drafts and response submission state;
   authoritative runtime notices determine blocking and completion.
 - `NewSessionModel` calls device/preparation/creation services directly and owns

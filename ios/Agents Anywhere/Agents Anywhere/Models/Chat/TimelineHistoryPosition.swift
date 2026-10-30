@@ -32,7 +32,8 @@ nonisolated struct TimelineHistoryPosition: Equatable {
     }
 
     var isReadyToFinish: Bool {
-        hasReceivedPage && (expectedFirstRowID == nil || latestLayout?.firstRowID == expectedFirstRowID)
+        hasReceivedPage && (restorationCancelled || origin == nil || expectedFirstRowID == nil
+            || latestLayout?.firstRowID == expectedFirstRowID)
     }
 
     mutating func receivedPage(firstRowID: String?) {

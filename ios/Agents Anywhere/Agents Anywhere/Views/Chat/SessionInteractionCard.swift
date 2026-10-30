@@ -1,13 +1,20 @@
 import SwiftUI
 
-/// A fixed-size preview. Draft forms and verbose diagnostics live in sheets,
-/// so acknowledgement/network revisions cannot resize the timeline's inset.
+/// Fixed slots keep the timeline stable. Input requests expose their editors;
+/// expanded forms and verbose diagnostics remain available in sheets.
 struct SessionInteractionCard: View {
     let item: SessionNoticeModel
     let chat: SessionChatModel
     var page: String? = nil
     var height: CGFloat? = nil
+    var showsSurface = true
+    var isActive = true
+    var usesCompactInput = false
     var onExpand: (() -> Void)? = nil
+    var onPrevious: (() -> Void)? = nil
+    var onNext: (() -> Void)? = nil
+    var canGoPrevious = false
+    var canGoNext = false
     @State private var destination: Destination?
     private enum Destination: String, Identifiable {
         case expanded, details
@@ -23,39 +30,77 @@ struct SessionInteractionCard: View {
                         .font(.subheadline)
                     Text(title).font(.subheadline.weight(.semibold))
                         .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    Button(String(localized: "操作详情")) { destination = .details }
-                        .font(.caption).fixedSize().frame(minHeight: 44)
+                    if let onPrevious, let onNext, let page {
+                        HStack(spacing: 0) {
+                            Button(action: onPrevious) { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+                                .disabled(!canGoPrevious).accessibilityLabel(String(localized: "上一项"))
+                                .accessibilityIdentifier("chat.interactions.previous")
+                            Text(page).font(.caption).monospacedDigit().fixedSize()
+                                .accessibilityIdentifier("chat.interactions.page")
+                            Button(action: onNext) { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+                                .disabled(!canGoNext).accessibilityLabel(String(localized: "下一项"))
+                                .accessibilityIdentifier("chat.interactions.next")
+                        }.buttonStyle(.plain)
+                    } else if item.form == nil {
+                        Button(String(localized: "操作详情")) { destination = .details }
+                            .font(.caption).fixedSize().frame(minHeight: 44)
+                    }
                     Button {
                         if let onExpand { onExpand() } else { destination = .expanded }
                     } label: {
                         VStack(spacing: 2) {
                             Text(String(localized: "展开"))
-                            if let page { Text(page).font(.caption2).monospacedDigit() }
+                            if let page, onPrevious == nil { Text(page).font(.caption2).monospacedDigit() }
                         }.font(.caption).frame(minWidth: 44, minHeight: 44)
                     }.buttonStyle(.plain)
                 }
                 .foregroundStyle(item.notice.severity == "error" ? Color.red : Color.primary)
                 .frame(height: metrics.titleHeight, alignment: .center)
 
-                let status = status(at: timeline.date)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(summary).font(.system(.subheadline, design: item.notice.interactionType == "approval" ? .monospaced : .default))
-                        .lineLimit(status.isEmpty ? 2 : 1)
-                    if !status.isEmpty { Text(status).font(.caption).lineLimit(1) }
-                }
-                .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: metrics.lineHeight * 2, alignment: .topLeading).clipped()
+                if let form = item.form, usesCompactInput {
+                    Button {
+                        if let onExpand { onExpand() } else { destination = .expanded }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(form.questions.first?.prompt ?? title).lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .font(.subheadline).padding(.horizontal, 12).frame(minHeight: 44)
+                        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain).accessibilityHint(String(localized: "打开表单，填写后提交"))
+                    .accessibilityIdentifier("chat.interactions.inputEntry")
+                } else if let form = item.form {
+                    ScrollView {
+                        SessionInteractionFields(item: item, chat: chat, isActive: isActive)
+                            .padding(.horizontal, 4).padding(.vertical, 2)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .frame(maxHeight: .infinity)
+                    inputActions(form, at: timeline.date)
+                } else {
+                    let status = status(at: timeline.date)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(summary).font(.system(.subheadline, design: item.notice.interactionType == "approval" ? .monospaced : .default))
+                            .lineLimit(status.isEmpty ? 2 : 1)
+                        if !status.isEmpty { Text(status).font(.caption).lineLimit(1) }
+                    }
+                    .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: metrics.lineHeight * 2, alignment: .topLeading).clipped()
 
-                if item.notice.type == "interaction" {
-                    SessionInteractionActions(item: item, chat: chat, now: timeline.date, compact: true,
-                        onEdit: { if let onExpand { onExpand() } else { destination = .expanded } })
-                        .frame(height: metrics.actionHeight)
+                    if item.notice.type == "interaction" {
+                        SessionInteractionActions(item: item, chat: chat, now: timeline.date, compact: true,
+                            onEdit: { if let onExpand { onExpand() } else { destination = .expanded } })
+                            .frame(height: metrics.actionHeight)
+                    }
                 }
+
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .frame(height: height ?? metrics.compactHeight)
+            .frame(height: height ?? (item.form == nil ? metrics.compactHeight : metrics.inputHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .modifier(InteractionCardSurface(enabled: showsSurface))
         }
         .sheet(item: $destination) { target in
             switch target {
@@ -63,6 +108,44 @@ struct SessionInteractionCard: View {
             case .details: SessionInteractionDetailsSheet(item: item, chat: chat)
             }
         }
+    }
+
+    private func inputActions(_ form: NoticeInputForm, at now: Date) -> some View {
+        HStack(spacing: 8) {
+            let value = status(at: now, showsQuestionCount: false)
+            if !value.isEmpty {
+                Text(value).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Menu {
+                Button(String(localized: "操作详情")) { destination = .details }
+                ForEach(item.notice.actions.filter { $0.id != form.actionID }) { action in
+                    Button(NoticeActionPresentation.title(action, notice: item.notice),
+                        role: action.style == "danger" ? .destructive : nil) {
+                        Task { await chat.respond(notice: item, action: action) }
+                    }
+                    .disabled(chat.isWorking || !item.canRespond(fresh: chat.session.runtime.isFresh, at: now)
+                        || !item.hasValidInput(for: action))
+                }
+            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                .buttonStyle(.plain).accessibilityLabel(String(localized: "更多"))
+            if let action = item.notice.actions.first(where: { $0.id == form.actionID }) {
+                Button {
+                    Task { await chat.respond(notice: item, action: action) }
+                } label: {
+                    Group {
+                        if item.isSending(action) { ProgressView() }
+                        else { Image(systemName: "arrow.up").font(.body.weight(.semibold)) }
+                    }.frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glassProminent).buttonBorderShape(.circle)
+                .frame(width: 44, height: 44)
+                .accessibilityLabel(NoticeActionPresentation.title(action, notice: item.notice))
+                .accessibilityIdentifier("chat.interactions.submit")
+                .disabled(chat.isWorking || !item.canRespond(fresh: chat.session.runtime.isFresh, at: now)
+                    || !item.hasValidInput(for: action))
+            }
+        }.frame(height: 44)
     }
 
     private var title: String {
@@ -80,7 +163,7 @@ struct SessionInteractionCard: View {
         return TimelineText.command(item.notice.context["command"])
             ?? TimelineText.command(item.notice.context["toolInput"]?["command"]) ?? ""
     }
-    private func status(at now: Date) -> String {
+    private func status(at now: Date, showsQuestionCount: Bool = true) -> String {
         switch item.submission {
         case .sending: return String(localized: "正在提交…")
         case .accepted: return String(localized: "已提交，等待 \(chat.agentName)")
@@ -92,7 +175,7 @@ struct SessionInteractionCard: View {
         if item.responseError != nil || item.notice.status == .failed { return String(localized: "回应失败 · 查看详情") }
         if chat.responseUnavailableReason != nil { return String(localized: "连接不可用 · 查看详情") }
         if [.responding, .responseAccepted, .resolving].contains(item.notice.status) { return String(localized: "\(chat.agentName) 正在处理…") }
-        if let form = item.form { return String(localized: "\(form.questions.count) 个问题") }
+        if showsQuestionCount, let form = item.form { return String(localized: "\(form.questions.count) 个问题") }
         return ""
     }
 }
@@ -167,6 +250,8 @@ struct SessionInteractionMetrics: DynamicProperty {
     var titleHeight: CGFloat { max(44, lineHeight * 2) }
     var minimumHeight: CGFloat { titleHeight + actionHeight + 32 }
     var compactHeight: CGFloat { minimumHeight + lineHeight * 2 }
+    var inputHeight: CGFloat { titleHeight + lineHeight * 5 + 76 }
+    var compactInputHeight: CGFloat { titleHeight + 76 }
 }
 
 /// Ticks once per second only while a notice can still expire. Cards without an
@@ -180,5 +265,14 @@ struct NoticeExpiryClock: TimelineSchedule {
             let next = previous.addingTimeInterval(1)
             return next <= last ? next : nil
         })
+    }
+}
+
+/// A dock owns one surface across pages; standalone timeline cards own theirs.
+private struct InteractionCardSurface: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.glassEffect(.regular, in: .rect(cornerRadius: 24)) }
+        else { content }
     }
 }

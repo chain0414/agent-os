@@ -9,10 +9,12 @@ struct SessionTimelineGroupView: View, Equatable {
     /// Interaction cards targeting rows of this group. Passing the subset keeps
     /// unrelated groups equal when another row's notice changes.
     var inlineNotices: [SessionNoticeModel] = []
+    var omitsAssistantText = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.group == rhs.group && lhs.chat === rhs.chat && lhs.turnAction == rhs.turnAction
             && lhs.inlineNotices.elementsEqual(rhs.inlineNotices, by: ===)
+            && lhs.omitsAssistantText == rhs.omitsAssistantText
     }
 
     var body: some View {
@@ -35,7 +37,8 @@ struct SessionTimelineGroupView: View, Equatable {
         else {
             TimelineFold(id: "group:\(group.id)", title: group.title,
                 symbol: group.kind == .reconnect ? "wifi.slash" : agentGroup ? "person.2" : "hammer",
-                status: group.status, disclosures: chat.disclosures) {
+                status: group.status, disclosures: chat.disclosures,
+                executionSummary: group.kind != .reconnect) {
                 rows
             }
         }
@@ -45,7 +48,7 @@ struct SessionTimelineGroupView: View, Equatable {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(group.rows) { row in
                 SessionTimelineRow(row: row, chat: chat, onAttachment: onAttachment, cwd: chat.session.metadata?.cwd,
-                    disclosures: chat.disclosures, onFile: onFile)
+                    disclosures: chat.disclosures, onFile: onFile, omitsAssistantText: omitsAssistantText)
                     .equatable()
                 ForEach(inlineNotices.filter { $0.timelineTargetID == row.id }) { notice in
                     SessionInteractionCard(item: notice, chat: chat)
@@ -190,13 +193,30 @@ private struct TimelineFold<Content: View>: View {
     let symbol: String
     let status: V2TimelineItemStatus
     let disclosures: TimelineDisclosureState
+    var executionSummary = false
     @ViewBuilder var content: () -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { disclosures.toggle(id) }
-            } label: { TimelineMarkerRow(title: title, symbol: symbol, status: status, expanded: disclosures.isExpanded(id)) }
+            } label: {
+                if executionSummary {
+                    HStack(spacing: 6) {
+                        Text(title).font(.subheadline)
+                            .modifier(TimelineMarkerShimmer(active: status.isActive))
+                        AppSymbol("chevron.down", size: 11)
+                            .rotationEffect(.degrees(disclosures.isExpanded(id) ? 180 : 0))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(status.isFailure ? Color.red : .secondary)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("chat.execution.summary")
+                } else {
+                    TimelineMarkerRow(title: title, symbol: symbol, status: status, expanded: disclosures.isExpanded(id))
+                }
+            }
             .buttonStyle(.plain).accessibilityValue(disclosures.isExpanded(id) ? String(localized: "已展开") : String(localized: "已折叠"))
             if disclosures.isExpanded(id) { content().transition(.identity) }
         }

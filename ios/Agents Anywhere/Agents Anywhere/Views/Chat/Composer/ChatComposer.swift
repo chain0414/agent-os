@@ -25,6 +25,7 @@ struct ChatComposer: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Namespace private var glass
+    @State private var softwareKeyboardVisible = false
     @State var voice: ComposerVoiceInput
     @State private var voiceSendTask: Task<Void, Never>?
     @State private var isSendingVoice = false
@@ -118,6 +119,16 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(commandsActive ? .isSelected : [])
                         .accessibilityIdentifier("chat.composer.commands")
                     }
+                    if softwareKeyboardVisible && draft.isFocused {
+                        Button { editor.finishEditing() } label: {
+                            Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 20))
+                                .frame(width: controls.touchTarget, height: controls.touchTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "收起键盘"))
+                        .accessibilityIdentifier("chat.composer.dismissKeyboard")
+                    }
                 }
             }
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: draft.isExpanded ? controls.expandedCornerRadius : controls.collapsedCornerRadius))
@@ -132,6 +143,14 @@ struct ChatComposer: View {
         // the draft from the page root re-evaluated the whole conversation.
         .onChange(of: draft.text) { _, _ in onDraftChange() }
         .onChange(of: draft.attachments) { _, _ in onDraftChange() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                  let screen = editor.textView?.window?.screen else { return }
+            softwareKeyboardVisible = frame.height > 0 && frame.minY < screen.bounds.height
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            softwareKeyboardVisible = false
+        }
         .onChange(of: ObjectIdentifier(draft)) { _, _ in interruptVoice() }
         .onChange(of: draft.isValid) { _, valid in if !valid { interruptVoice() } }
         .onChange(of: draft.isVoiceInputActive) { _, active in if !active && voice.isActive { interruptVoice() } }

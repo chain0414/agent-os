@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Repositions the same three subviews, preserving the editor and its IME state.
+/// Repositions the same editor and action controls, preserving the editor and its IME state.
 struct ComposerLayout: Layout {
     let expanded: Bool
     let maximumEditorHeight: CGFloat
@@ -20,7 +20,7 @@ struct ComposerLayout: Layout {
         let buttonY = expanded ? bounds.maxY - inset - button : bounds.midY - button / 2
         subviews[0].place(at: CGPoint(x: bounds.minX + inset, y: buttonY), proposal: .init(width: button, height: button))
         subviews[2].place(at: CGPoint(x: bounds.maxX - inset - button, y: buttonY), proposal: .init(width: button, height: button))
-        // Voice and optional command controls share the existing action row.
+        // Voice and optional command/keyboard controls each receive a separate slot.
         for index in 3..<max(3, subviews.count) {
             subviews[index].place(at: CGPoint(x: bounds.maxX - inset - button * CGFloat(index - 1), y: buttonY), proposal: .init(width: button, height: button))
         }

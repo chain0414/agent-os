@@ -36,7 +36,7 @@ enum TimelineTurnActions {
         }
 
         for group in groups {
-            if group.rows.contains(where: { $0.structure.startsTurn }) {
+            if group.startsTurn || group.rows.contains(where: { $0.structure.startsTurn }) {
                 commit()
                 turnOpen = true
                 startsMidTurn = false
@@ -49,6 +49,7 @@ enum TimelineTurnActions {
             replies.append(contentsOf: messages)
             changes.append(contentsOf: fileChanges)
             hasActiveItems = hasActiveItems || group.rows.contains { $0.structure.status.isActive }
+            if group.endsAtHiddenTurnBoundary { commit() }
         }
         // The pending user bubble already starts the next turn, even before its
         // echo enters groups. A runtime "waiting" event belongs to that new turn.

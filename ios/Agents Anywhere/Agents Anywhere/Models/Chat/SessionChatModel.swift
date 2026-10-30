@@ -4,7 +4,7 @@ import Observation
 @MainActor @Observable
 final class SessionChatModel {
     let session: V2SessionModel
-    let timeline = SessionTimelinePresentation()
+    var timeline: SessionTimelinePresentation { session.chatTimeline }
     let settings = ConversationSettings()
     let disclosures = TimelineDisclosureState()
     var takeoverError: String?
@@ -206,6 +206,12 @@ final class SessionChatModel {
     }
 
     func prepareOpening() async {
+        // Compact/split replacement creates a new view owner, not a fresh
+        // page visit. Preserve the loaded window containing the reading anchor.
+        if session.isValid, timeline.hasPresentedSnapshot, !session.readingAnchor.followsBottom {
+            isOpeningPrepared = true
+            return
+        }
         if !timeline.hasPresentedSnapshot { isOpeningPrepared = false }
         openingError = nil
         do {

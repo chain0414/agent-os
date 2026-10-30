@@ -5,6 +5,26 @@ import Testing
 @testable import ClientCore
 
 @Suite struct SessionPresentationTests {
+    @Test @MainActor func replacingObservationDoesNotLetOldCancellationDisableNewUpdates() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let presentation = SessionTimelinePresentation()
+        let first = Task { await presentation.run(sessionID: "session", repository: repo) }
+        try await Task.sleep(for: .milliseconds(20))
+        let second = Task { await presentation.run(sessionID: "session", repository: repo) }
+        defer { second.cancel() }
+        try await Task.sleep(for: .milliseconds(20))
+        first.cancel()
+        await first.value
+        let value = try item("message", content: ["text": "New subscription remains live"])
+        presentation.stage([value], animate: false)
+        for _ in 0..<30 {
+            if presentation.rows.first?.text == value.displayText { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(presentation.rows.first?.text == value.displayText)
+    }
     private func item(_ type: String = "tool", id: String = "item", status: String = "done", content: [String: Any], source: [String: Any] = [:]) throws -> V2TimelineItem {
         var value = try itemObject(id: id)
         value["type"] = type; value["status"] = status; value["content"] = content; value["source"] = source
@@ -104,7 +124,7 @@ import Testing
         let one = TimelineGrouping.groups([first], interactionTargets: [])
         let two = TimelineGrouping.groups([first, second], interactionTargets: [])
         #expect(one[0].id == two[0].id && two[0].kind == .tools)
-        #expect(two[0].title == "2 次工具调用")
+        #expect(two[0].title == "已完成")
         let protected = TimelineGrouping.groups([first, second], interactionTargets: ["a"])
         #expect(protected.count == 2 && protected.allSatisfy { $0.kind == .single })
         let children = try ["x", "y"].map { ChatTimelineRowModel(try item(id: $0, content: ["kind": "agent_call", "parentItemId": "parent"])) }

@@ -61,6 +61,39 @@ struct ChatMarkdownView: View {
         let resolvesFileReferences: Bool
     }
 
+    struct Preparation: Equatable {
+        let row: ChatTimelineRowModel
+        let text: String
+        let generation: Int
+        init(_ row: ChatTimelineRowModel) {
+            self.row = row; text = row.text; generation = row.layoutGeneration
+        }
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.row === rhs.row && lhs.generation == rhs.generation && lhs.text == rhs.text
+        }
+    }
+
+    /// Called by the timeline itself, so parsing does not depend on which
+    /// paragraph happens to be mounted by its lazy stack.
+    static func prepare(_ preparation: Preparation) async {
+        let row = preparation.row
+        let cache = row.markdown
+        guard cache.parsedText != preparation.text else { return }
+        let request = ParseRequest(text: preparation.text, resolvesFileReferences: true)
+        let previous = row.value.isStreamingText ? cache.state : nil
+        let worker = Task.detached(priority: .userInitiated) { try parse(request, previous: previous) }
+        let result = await withTaskCancellationHandler { await worker.result } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, row.layoutGeneration == preparation.generation,
+              row.text == preparation.text, case .success(let parsed) = result else { return }
+        var deadlines = cache.deadlines.filter { id, _ in parsed.blocks.contains { $0.id == id } }
+        if row.isRevealing {
+            let old = Dictionary(cache.blocks.map { ($0.id, $0.digest) }, uniquingKeysWith: { $1 })
+            let deadline = Date.now.addingTimeInterval(ReplyPresentation.revealSeconds + ReplyPresentation.drawSlack)
+            for block in parsed.blocks where old[block.id] != block.digest { deadlines[block.id] = deadline }
+        }
+        cache.publish(blocks: parsed.blocks, state: parsed.state, deadlines: deadlines, text: preparation.text)
+    }
+
     /// Completed text is parsed once per safe boundary; the open tail is parsed
     /// per batch. A reply whose text no longer extends the cached prefix (a
     /// correction or recovery) starts over from an empty state.
@@ -85,6 +118,7 @@ struct ChatMarkdownView: View {
         try Task.checkCancellation()
         var document = try AttributedStringMarkdownParser.parse(text, syntaxExtensions: [.math])
         try Task.checkCancellation()
+        document = InlineCodeWebLink.enrich(document)
         if request.resolvesFileReferences {
             for run in document.runs {
                 if run.link == nil, run.inlinePresentationIntent?.contains(.code) == true,
@@ -103,7 +137,7 @@ struct ChatMarkdownView: View {
     }
 }
 
-private struct MarkdownBlockView: View, Equatable {
+struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlockSnapshot
     let isStreaming: Bool
     let isTail: Bool
@@ -139,6 +173,7 @@ private struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .traceChatLayout("markdown:\(traceOwner):\(block.id):layout")
+        .modifier(TimelineReadingMeasurement(id: "\(traceOwner):block:\(block.id)", isParagraph: true))
         .task(id: RevealPhase(isStreaming: isStreaming, isTail: isTail)) {
             // Opening static history must not schedule delayed state changes
             // for every paragraph. A live append still settles completed blocks.

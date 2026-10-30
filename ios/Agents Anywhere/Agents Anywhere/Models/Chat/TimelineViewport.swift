@@ -8,14 +8,16 @@ nonisolated struct TimelineViewport: Equatable {
     let visibleBottom: CGFloat
     let offsetY: CGFloat
     let topInset: CGFloat
+    let containerWidth: CGFloat
 
     init(contentHeight: CGFloat = 0, containerHeight: CGFloat = 0,
-         topInset: CGFloat = 0, bottomInset: CGFloat = 0, offsetY: CGFloat = 0) {
+         topInset: CGFloat = 0, bottomInset: CGFloat = 0, offsetY: CGFloat = 0, containerWidth: CGFloat = 0) {
         self.contentHeight = max(0, contentHeight)
         visibleHeight = max(0, containerHeight - topInset - bottomInset)
         visibleBottom = offsetY + containerHeight - bottomInset
         self.offsetY = offsetY
         self.topInset = topInset
+        self.containerWidth = containerWidth
     }
     var isMeasured: Bool { visibleHeight > 0 }
 }

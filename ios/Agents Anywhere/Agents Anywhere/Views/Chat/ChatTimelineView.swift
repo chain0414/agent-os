@@ -24,16 +24,22 @@ struct ChatTimelineView: View {
     @State private var nativePhase = TimelineScrollState.Phase.idle
     /// The return pill would sit on top of the keyboard while typing.
     @State private var keyboardIsVisible = false
+    @State private var readingWidth: CGFloat = 0
+    @State private var restoredWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.sidebarDrawerIsTransitioning) private var sidebarIsTransitioning
     @Environment(\.sidebarDrawerObscuresDetail) private var sidebarObscuresDetail
+    @Environment(\.dismissChatKeyboard) private var dismissKeyboard
+    @Environment(\.chatTitleVisibility) private var titleVisibility
     @ScaledMetric(relativeTo: .caption) private var returnPillHeight: CGFloat = 32
 #if DEBUG
     private static let drawerLayoutLog = Logger(subsystem: "agents.anywhere", category: "drawer-layout")
 #endif
 
     private var hasInteractions: Bool {
-        model.session.notices.notices.contains { $0.isVisible && $0.notice.type == "interaction" }
+        !SessionInteractionPager.items(model.session.notices.notices, sessionID: model.session.id,
+            currentTurnItemIDs: model.session.currentInteractionTurnItemIDs,
+            isLatestWindow: !model.session.hasNewerItems).isEmpty
     }
     private var viewport: TimelineViewport { viewportSample.value ?? scrolling.viewport }
     private var navigationIsSuspended: Bool { sidebarIsTransitioning || sidebarObscuresDetail }
@@ -53,9 +59,21 @@ struct ChatTimelineView: View {
                     onTailVisibility: { region, visible in scrolling.tailVisibilityChanged(region, visible: visible) })
                     .equatable()
                     .background { ChatPageScrollEdge() }
+                    .environment(\.timelineReadingWidth, readingWidth)
+                    .environment(\.timelineReadingMeasurement) { id, frame, width, paragraph in
+                        model.session.readingAnchor.measure(id: id, y: frame.minY, height: frame.height,
+                            width: width, isParagraph: paragraph)
+                    }
+                    .environment(\.userMessageDisclosureChanged) { key, collapsed in
+                        scrolling.browseHistory()
+                        historyPosition?.cancelRestoration()
+                        guard collapsed, let target = model.timeline.disclosureTarget(for: key) else { return }
+                        position.scrollTo(id: target, anchor: .top)
+                    }
             }
             .scrollPosition($position)
             .scrollDismissesKeyboard(.interactively)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { readingWidth = $0 }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollEdgeEffectStyle(.soft, for: .top)
@@ -64,6 +82,9 @@ struct ChatTimelineView: View {
             .defaultScrollAnchor(.top, for: .sizeChanges)
             .allowsHitTesting(model.isOpeningReady)
             .accessibilityHidden(!model.isOpeningReady)
+            .onChange(of: navigationIsSuspended) { _, suspended in
+                if suspended { titleVisibility?.scrollChanged(.idle) }
+            }
             .onScrollPhaseChange { _, phase, context in
                 // A phase callback carries a newer authoritative sample.
                 viewportUpdates.cancel()
@@ -84,6 +105,7 @@ struct ChatTimelineView: View {
                 // The drawer owns horizontal navigation. Do not interpret its
                 // interrupted scroll callbacks as a fresh vertical reading intent.
                 if navigationIsSuspended { return }
+                titleVisibility?.scrollChanged(mapped)
                 if scrolling.phaseChanged(mapped, viewport: current) {
                     // Release ScrollPosition's persistent edge target as soon
                     // as the user takes over, including interrupted animations.
@@ -132,6 +154,7 @@ struct ChatTimelineView: View {
                         if latest != latestPull { latestPull = latest }
                         if older != olderPull { olderPull = older }
                     }
+                    captureReadingPosition(value)
                 }
             }
             .onChange(of: navigationIsSuspended, initial: true) { _, suspended in
@@ -155,7 +178,47 @@ struct ChatTimelineView: View {
                 scrolling.setInteractionPresented(presented)
             }
             .onChange(of: model.isOpeningReady, initial: true) { _, ready in
-                if ready { scrolling.open(interactionPresented: hasInteractions) }
+                if ready {
+                    scrolling.open(interactionPresented: hasInteractions)
+                    if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
+                }
+            }
+            .task(id: ReadingRestoration(width: readingWidth, ready: model.isOpeningReady)) {
+                guard model.isOpeningReady, readingWidth > 0 else { return }
+                let width = readingWidth
+                let store = model.session.readingAnchor
+                let anchor = store.anchor
+                let generation = scrolling.navigationGeneration
+                if let anchor {
+                    if store.target(for: anchor, width: width) == nil {
+                        let rowID = anchor.id.components(separatedBy: ":block:")[0]
+                        let groups = TimelineGrouping.groups(model.timeline.rows,
+                            interactionTargets: Set(model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }.compactMap(\.timelineTargetID)))
+                        let entries = TimelineRenderEntry.build(groups: groups)
+                        let target = entries.contains { $0.id == anchor.id } ? anchor.id
+                            : entries.first { $0.group.rows.contains { $0.id == rowID } }?.id ?? rowID
+                        position.scrollTo(id: target, anchor: .top)
+                    }
+                    // Content measurements arrive after width/size-class changes.
+                    // A new gesture invalidates the pending correction immediately.
+                    var lastTarget: CGFloat?
+                    for _ in 0..<12 {
+                        do { try await Task.sleep(for: .milliseconds(24)) } catch { return }
+                        guard !Task.isCancelled, scrolling.navigationGeneration == generation else { break }
+                        if let y = store.target(for: anchor, width: width) {
+                            if let lastTarget, abs(y - lastTarget) <= 0.5 { continue }
+                            lastTarget = y
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { position.scrollTo(y: max(-viewport.topInset, y - viewport.topInset)) }
+                        }
+                    }
+                    releaseScrollPosition()
+                }
+                restoredWidth = width
+            }
+            .onChange(of: model.timeline.rows.map(\.id)) { _, ids in
+                model.session.readingAnchor.retain(rowIDs: Set(ids))
             }
             .onChange(of: scrolling.navigationGeneration) { _, _ in
                 releaseScrollPosition()
@@ -220,6 +283,9 @@ struct ChatTimelineView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Background receives only unhandled taps, leaving links, selection and
+        // controls in the foreground with their original gestures.
+        .background { Color.clear.contentShape(Rectangle()).onTapGesture { dismissKeyboard() } }
         .traceChatLayout("timeline-viewport")
         .onDisappear { viewportUpdates.cancel(); historyUpdates.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -235,11 +301,27 @@ struct ChatTimelineView: View {
         olderPull.cancel(); latestPull.cancel()
         scrolling.browseHistory()
         position.isPositionedByUser = true
-        let layout = historyLayout.flatMap { $0.firstRowID == model.timeline.rows.first?.id ? $0 : nil }
+        let interactionTargets = Set(model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }.compactMap(\.timelineTargetID))
+        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: interactionTargets)
+        let layout = model.timeline.rows.first.flatMap { first in
+            model.session.readingAnchor.historyLayout(firstRowID: first.id, entries: TimelineRenderEntry.build(groups: groups),
+                top: viewport.offsetY + viewport.topInset, width: readingWidth)
+        }
         historyPosition = TimelineHistoryPosition(id: scrolling.navigationGeneration, layout: layout,
             offsetY: viewport.offsetY, topInset: viewport.topInset)
         hasRequestedOlder = true
         olderLoadRequest = scrolling.navigationGeneration
+    }
+    private func captureReadingPosition(_ value: TimelineViewport) {
+        guard model.isOpeningReady, readingWidth > 0, restoredWidth == readingWidth,
+              abs(value.containerWidth - readingWidth) < 1,
+              !navigationIsSuspended else { return }
+        model.session.readingAnchor.capture(top: value.offsetY + value.topInset, width: readingWidth,
+            following: scrolling.mode != .reading)
+    }
+    private struct ReadingRestoration: Equatable {
+        let width: CGFloat
+        let ready: Bool
     }
     private func loadLatest() {
         guard model.session.isValid, model.session.hasNewerItems,
@@ -319,6 +401,8 @@ struct ChatTimelineView: View {
 }
 
 private struct ChatTimelineContent: View, Equatable {
+    @Environment(\.dismissChatKeyboard) private var dismissKeyboard
+    @Environment(\.chatTitleVisibility) private var titleVisibility
     let model: SessionChatModel
     let onAttachment: (V2AttachmentContent) -> Void
     let onFile: (String) -> Void
@@ -341,9 +425,10 @@ private struct ChatTimelineContent: View, Equatable {
             && lhs.keepsOlderPrompt == rhs.keepsOlderPrompt && lhs.historyAnchor == rhs.historyAnchor
     }
     var body: some View {
-        let visibleNotices = model.session.notices.notices.filter { $0.isVisible && !$0.blocks(model.session.id) }
-        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: Set(model.session.notices.notices
-            .filter(\.isVisible).compactMap(\.timelineTargetID)))
+        // Interactions have one shared pager above the composer, regardless of
+        // blocking scope or timeline target. Only notifications remain inline.
+        let visibleNotices = model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }
+        let groups = TimelineGrouping.groups(model.timeline.rows, interactionTargets: Set(visibleNotices.compactMap(\.timelineTargetID)))
         // Resolve notice targets once per body instead of once per row.
         let rowIDs = Set(model.timeline.rows.map(\.id))
         let noticesByTarget = Dictionary(grouping: visibleNotices.filter { $0.timelineTargetID != nil }) { $0.timelineTargetID! }
@@ -351,104 +436,172 @@ private struct ChatTimelineContent: View, Equatable {
             hasPendingUserMessage: !model.session.hasNewerItems && (!model.timeline.pendingMessages.isEmpty || !model.session.pendingMessages.isEmpty))
         // Prefer a message whose start cannot move into a prefixed tool group.
         // For an all-tools page, retain the existing group's trailing edge.
-        let anchorGroup = historyAnchor.flatMap { anchor in groups.first { $0.rows.contains { $0.id == anchor.anchorRowID } } }
-            ?? groups.first { $0.rows.first?.structure.groupKind == .single } ?? groups.last
-        let anchorEdge = historyAnchor?.edge ?? (anchorGroup?.rows.first?.structure.groupKind == .single ? .top : .bottom)
-        // Keep actual row geometry available as Markdown grows and tool groups
-        // change height. Hidden tool details own their deferred work separately.
-        VStack(alignment: .leading, spacing: 20) {
-            if model.session.hasOlderItems || keepsOlderPrompt {
-                Group {
-                    if isLoadingOlder {
-                        HStack(spacing: 8) {
-                            ProgressView().progressViewStyle(.circular).controlSize(.small)
-                            Text(String(localized: "正在加载较早的消息…"))
-                        }.accessibilityElement(children: .combine)
-                    } else if model.session.hasOlderItems {
-                        Button(action: onLoadOlder) {
-                            Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .contentShape(Rectangle())
-                        }.disabled(model.session.isLoadingHistory || isLoadingLatest)
-                    } else {
-                        // Retain the prompt's footprint on the final page; removing
-                        // it after restoring would move the reader by another row.
-                        Text(String(localized: "已到达会话开头")).foregroundStyle(.secondary)
-                    }
-                }
-                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
-                .onScrollVisibilityChange(threshold: 0.9) { onOlderPromptVisibility($0) }
-            }
-            ForEach(groups) { group in
-                SessionTimelineGroupView(group: group, chat: model, onAttachment: onAttachment, onFile: onFile,
-                    turnAction: actions[group.id],
-                    inlineNotices: group.rows.flatMap { noticesByTarget[$0.id] ?? [] })
-                    .equatable()
-                    .id(group.id)
+        let entries = TimelineRenderEntry.build(groups: groups)
+        let preparations = groups.compactMap { group -> ChatMarkdownView.Preparation? in
+            guard group.kind == .single, group.rows.count == 1,
+                  let row = group.rows.first, row.usesBlockTimeline else { return nil }
+            return ChatMarkdownView.Preparation(row)
+        }
+        let anchorEntry = readingEntry(in: entries)
+        let anchorEdge: TimelineHistoryLayout.Edge = historyAnchor?.edge
+            ?? (anchorEntry?.group.rows.first?.structure.groupKind == .single ? .top : .bottom)
+        LazyVStack(alignment: .leading, spacing: 0) {
+            if model.session.hasOlderItems || keepsOlderPrompt { olderPrompt }
+            ForEach(entries) { entry in
+                TimelineEntryView(entry: entry, model: model, onAttachment: onAttachment, onFile: onFile,
+                    turnAction: actions[entry.group.id],
+                    inlineNotices: entry.group.rows.flatMap { noticesByTarget[$0.id] ?? [] })
+                    .id(entry.id)
+                    .modifier(TimelineReadingMeasurement(id: entry.id, isParagraph: entry.isParagraph))
                     .background {
-                        if group.id == anchorGroup?.id, let firstRowID = model.timeline.rows.first?.id {
+                        if entry.id == anchorEntry?.id, let firstRowID = model.timeline.rows.first?.id {
                             Color.clear.onGeometryChange(for: TimelineHistoryLayout.self) { geometry in
                                 let frame = geometry.frame(in: .named("chat.timeline.content"))
                                 return TimelineHistoryLayout(firstRowID: firstRowID,
-                                    anchorRowID: historyAnchor?.anchorRowID ?? group.id, edge: anchorEdge,
+                                    anchorRowID: historyAnchor?.anchorRowID ?? entry.id, edge: anchorEdge,
                                     y: anchorEdge == .top ? frame.minY : frame.maxY)
                             } action: { onHistoryLayout($0) }
                         }
                     }
+                    .padding(.bottom, entry.isParagraph ? 12 : 20)
             }
             ForEach(visibleNotices.filter { notice in
                 notice.timelineTargetID.map { !rowIDs.contains($0) } ?? true
-            }) { item in SessionInteractionCard(item: item, chat: model) }
+            }) { item in SessionInteractionCard(item: item, chat: model).padding(.bottom, 20) }
             ForEach(model.timeline.pendingMessages) { pending in
                 PendingMessageRow(pending: pending, chat: model, onAttachment: onAttachment,
                     onDismiss: { model.session.dismissPendingMessage(id: pending.id) })
                     .id(pending.id)
+                    .padding(.bottom, 20)
             }
-            if model.session.hasNewerItems {
-                Button(action: onLoadLatest) {
-                    Group {
-                        if isLoadingLatest { ProgressView(String(localized: "正在加载更新的记录…")) }
-                        else { Text(latestPullReady ? String(localized: "松开加载更新的记录") : String(localized: "继续上拉加载更新的记录")) }
-                    }.font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .disabled(model.session.isLoadingHistory || isLoadingLatest || isLoadingOlder)
-                .onScrollVisibilityChange { onPromptVisibility($0) }
-            }
-            // Constant breathing room: status text and card counts cannot
-            // change this spacer or create a spurious follow request.
-            Group {
-                if let text = model.sendingPlaceholder {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                } else { Color.clear }
-            }.frame(height: 32)
-                .traceChatLayout("tail-spacer")
-                .overlay(alignment: .bottom) {
-                    Color.clear.frame(height: 96)
-                        .onScrollVisibilityChange(threshold: 0.01) { onTailVisibility(.near, $0) }
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .overlay(alignment: .bottom) {
-                    Color.clear.frame(height: 2)
-                        .onScrollVisibilityChange(threshold: 0.5) { onTailVisibility(.end, $0) }
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .id("tail")
+            if model.session.hasNewerItems { newerPrompt }
+            timelineTail
         }
+        .task(id: preparations) {
+            // Prefer the latest reply and bound parser work even in a history
+            // window containing many long messages.
+            for preparation in preparations.reversed() {
+                guard !Task.isCancelled else { return }
+                await ChatMarkdownView.prepare(preparation)
+            }
+        }
+        .scrollTargetLayout()
         .modifier(ChatPageContentColumn(horizontalInset: nil))
         .coordinateSpace(name: "chat.timeline.content")
         .traceChatLayout("timeline-content", state: "groups=\(groups.count), footers=\(actions.count), running=\(model.isRunning)")
     }
 
+    private func readingEntry(in entries: [TimelineRenderEntry]) -> TimelineRenderEntry? {
+        if let anchor = historyAnchor {
+            if let exact = entries.first(where: { $0.id == anchor.anchorRowID }) { return exact }
+            if let group = entries.first(where: { $0.group.rows.contains { $0.id == anchor.anchorRowID } }) { return group }
+        }
+        if let id = model.session.readingAnchor.anchor?.id {
+            if let exact = entries.first(where: { $0.id == id }) { return exact }
+            let rowID = String(id.components(separatedBy: ":block:")[0])
+            if let group = entries.first(where: { $0.group.rows.contains { $0.id == rowID } }) { return group }
+        }
+        return entries.first { $0.group.rows.first?.structure.groupKind == .single } ?? entries.last
+    }
+
+    private var olderPrompt: some View {
+        Group {
+            if isLoadingOlder {
+                HStack(spacing: 8) {
+                    ProgressView().progressViewStyle(.circular).controlSize(.small)
+                    Text(String(localized: "正在加载较早的消息…"))
+                }.accessibilityElement(children: .combine)
+            } else if model.session.hasOlderItems {
+                Button(action: onLoadOlder) {
+                    Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }.disabled(model.session.isLoadingHistory || isLoadingLatest)
+            } else {
+                // Retain the prompt's footprint on the final page; removing
+                // it after restoring would move the reader by another row.
+                Text(String(localized: "已到达会话开头")).foregroundStyle(.secondary)
+            }
+        }
+        .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+        .onScrollVisibilityChange(threshold: 0.9) { onOlderPromptVisibility($0) }
+        .padding(.bottom, 20)
+    }
+
+    private var newerPrompt: some View {
+        Button(action: onLoadLatest) {
+            Group {
+                if isLoadingLatest { ProgressView(String(localized: "正在加载更新的记录…")) }
+                else { Text(latestPullReady ? String(localized: "松开加载更新的记录") : String(localized: "继续上拉加载更新的记录")) }
+            }.font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .disabled(model.session.isLoadingHistory || isLoadingLatest || isLoadingOlder)
+        .onScrollVisibilityChange { onPromptVisibility($0) }
+        .padding(.bottom, 20)
+    }
+
+    private var timelineTail: some View {
+        // Constant breathing room: status text and card counts cannot
+        // change this spacer or create a spurious follow request.
+        Group {
+            if let text = model.sendingPlaceholder {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            } else { Color.clear }
+        }.frame(height: 32)
+            .contentShape(Rectangle())
+            .onTapGesture { dismissKeyboard() }
+            .traceChatLayout("tail-spacer")
+            .overlay(alignment: .bottom) {
+                Color.clear.frame(height: 96)
+                    .onScrollVisibilityChange(threshold: 0.01) { onTailVisibility(.near, $0) }
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .overlay(alignment: .bottom) {
+                Color.clear.frame(height: 2)
+                    .onScrollVisibilityChange(threshold: 0.5) { onTailVisibility(.end, $0) }
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .id("tail")
+    }
+
+}
+
+private struct TimelineEntryView: View {
+    let entry: TimelineRenderEntry
+    let model: SessionChatModel
+    let onAttachment: (V2AttachmentContent) -> Void
+    let onFile: (String) -> Void
+    let turnAction: TimelineTurnAction?
+    let inlineNotices: [SessionNoticeModel]
+
+    var body: some View {
+        switch entry.content {
+        case let .markdown(block):
+            if let row = entry.group.rows.first {
+                MarkdownBlockView(block: block, isStreaming: row.isRevealing,
+                    isTail: block.id == row.markdown.blocks.last?.id,
+                    revealDeadline: row.markdown.deadlines[block.id] ?? .distantPast)
+                    .equatable()
+                    .environment(\.chatLayoutTraceOwner, row.id)
+            }
+        case .group, .messageTail:
+            SessionTimelineGroupView(group: entry.group, chat: model,
+                onAttachment: onAttachment, onFile: onFile, turnAction: turnAction,
+                inlineNotices: inlineNotices, omitsAssistantText: entry.group.rows.first?.usesBlockTimeline == true)
+                .equatable()
+        }
+    }
 }
 
 private extension TimelineViewport {
     init(geometry: ScrollGeometry) {
         self.init(contentHeight: geometry.contentSize.height, containerHeight: geometry.containerSize.height,
-            topInset: geometry.contentInsets.top, bottomInset: geometry.contentInsets.bottom, offsetY: geometry.contentOffset.y)
+            topInset: geometry.contentInsets.top, bottomInset: geometry.contentInsets.bottom, offsetY: geometry.contentOffset.y,
+            containerWidth: geometry.containerSize.width)
     }
 }
 

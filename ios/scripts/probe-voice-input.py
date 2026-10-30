@@ -29,7 +29,7 @@ def main():
         app / "Services/ComposerSpeechRecognizer.swift",
         app / "Views/AppTheme.swift",
         *[app / f"Views/Chat/Composer/{name}.swift" for name in (
-            "ChatControlMetrics", "ComposerLayout", "NativeComposerEditor", "ChatComposer")],
+            "ChatControlMetrics", "ComposerLayout", "ChatKeyboardDismissalRouter", "NativeComposerEditor", "ChatComposer")],
     ]
     sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
     command = ["xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5",
