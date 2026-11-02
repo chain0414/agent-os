@@ -995,6 +995,7 @@ class SessionsApi(
             mediaType = optString("mediaType", ""),
             size = optLong("size", 0L),
             sha256 = optNullableString("sha256"),
+            thumbnailUrl = optNullableString("thumbnailUrl"),
         )
     }
 

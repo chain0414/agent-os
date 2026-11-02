@@ -33,3 +33,19 @@ func fixture<Value: Decodable>(_ name: String, as: Value.Type = Value.self) thro
     let _: V2EventRecoveryResponse = try fixture("recovery")
     let _: AuthMe = try fixture("profile")
 }
+
+@Test @MainActor func attachmentUploadAcceptsLegacyAndThumbnailResponses() throws {
+    let legacy: V2AttachmentUploadResponse = try fixture("upload")
+    #expect(legacy.attachments.first?.thumbnailUrl == nil)
+    let original = try JSONSerialization.jsonObject(with: fixtureData("upload")) as! [String: Any]
+    for thumbnail in ["", "/api/v2/sessions/session/attachments/file/thumb?w=512"] {
+        var response = original
+        var attachments = response["attachments"] as! [[String: Any]]
+        attachments[0]["thumbnailUrl"] = thumbnail
+        response["attachments"] = attachments
+        let data = try JSONSerialization.data(withJSONObject: response)
+        let decoded = try JSONDecoder().decode(V2AttachmentUploadResponse.self, from: data)
+        #expect(decoded.attachments.first?.thumbnailUrl == thumbnail)
+        #expect(decoded.attachments.first?.fileId == legacy.attachments.first?.fileId)
+    }
+}
