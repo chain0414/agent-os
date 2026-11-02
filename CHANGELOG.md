@@ -25,6 +25,7 @@
 
 - 修复 Codex 看图记录显示为 `unknown` 的问题，图片路径现在可用于打开预览。（[#491](https://github.com/anywhere-labs/Agents-Anywhere/pull/491)）
 - 修复被 Codex App 持有的会话执行 `/compact` 失败的问题，压缩请求现在交给持有会话的一方处理，无法联系时不再尝试抢占写入。（[#506](https://github.com/anywhere-labs/Agents-Anywhere/pull/506)）
+- DSH 同步大量或较长会话时会合并流式积压并优先校准积压会话，上传遇到瞬时断连或服务端临时错误时先重试，不再立即从头同步全部会话。（[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
 
 - 可以用独立协作扩展的验证脚本，在隔离原生会话中验证 DSH 与 Codex 的双向复核、异步回传及确认后编码；尚不支持直接接入桌面已有对话。（[dbb15f93](https://github.com/chain0414/agent-os/commit/dbb15f93)）
 - 修复接入 Codex 已有会话后，补入的旧消息出现在最新消息下方、历史消息交错或重排后顺序没有更新的问题；升级后同步会自动校准已有记录。（[#480](https://github.com/anywhere-labs/Agents-Anywhere/pull/480)）
