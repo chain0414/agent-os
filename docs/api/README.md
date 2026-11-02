@@ -18,6 +18,7 @@ All Server HTTP, SSE, and WebSocket API documentation should live under this dir
 - [Capability event deduplication](./capability-event-deduplication.md): why repeated session capability events occurred and how live projection delivery is deduplicated safely.
 - [Realtime API](./realtime.md): session, dashboard, connector, and terminal realtime channel semantics.
 - [Speech credentials](./speech.md): authenticated short-lived Aliyun credentials for iOS voice input (Server 2.2).
+- [Attachments](./attachments.md): streamed uploads and image thumbnails, access control and compatibility (Server 2.3).
 - [Admin Usage API](./admin-usage.md): event-driven usage statistics for administrators (`/admin/usage/*`), how events are collected and what each metric means.
 - [Frontend migration checklist](./frontend-migration-checklist.md): frontend API call-site replacements and behavior changes to apply after backend cleanup.
 

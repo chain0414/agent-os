@@ -771,6 +771,7 @@ export type UploadedAttachment = {
   createdAt: string;
   downloadUrl: string;
   openUrl: string;
+  thumbnailUrl?: string;
 };
 
 export type AttachmentUploadResponse = {

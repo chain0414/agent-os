@@ -249,6 +249,7 @@ data class RemoteUploadedAttachment(
     val mediaType: String,
     val size: Long,
     val sha256: String? = null,
+    val thumbnailUrl: String? = null,
 )
 
 data class RemoteAttachmentRef(

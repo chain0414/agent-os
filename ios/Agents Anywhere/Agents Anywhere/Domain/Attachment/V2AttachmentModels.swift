@@ -10,6 +10,7 @@ nonisolated struct V2AttachmentReference: Codable, Identifiable, Hashable {
     let createdAt: String
     let downloadUrl: String
     let openUrl: String
+    var thumbnailUrl: String? = nil
 
     var id: V2AttachmentID { fileId }
 }
