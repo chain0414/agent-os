@@ -31,9 +31,9 @@ for language in ["en", "zh-Hans"] {
     expect(String(localized: "\(runtimeName) will be stopped and removed from the configured list. All associated sessions, message history, and attachments will be permanently deleted. You can configure the runtime again later; the local installation is kept.", bundle: bundle, locale: locale),
            chinese ? "Work Agent 会停止并从已配置列表移除，其关联的所有会话、消息记录和附件将被永久删除。之后仍可重新配置 Runtime，本机安装会保留。" : "Work Agent will be stopped and removed from the configured list. All associated sessions, message history, and attachments will be permanently deleted. You can configure the runtime again later; the local installation is kept.")
     for (mode, english, simplifiedChinese) in [
-        ("readOnly", "read-only", "仅可查看"),
-        ("workspaceWrite", "workspace-write", "工作区内修改"),
-        ("fullAccess", "danger-full-access", "完全权限"),
+        ("readOnly", "Read Only", "仅可查看"),
+        ("workspaceWrite", "Workspace Write", "工作区内修改"),
+        ("fullAccess", "Full access", "完全权限"),
     ] {
         expect(bundle.localizedString(forKey: "dashboard.new.permissionModes.dsh.\(mode).label", value: nil, table: nil),
                chinese ? simplifiedChinese : english)
