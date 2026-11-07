@@ -38,6 +38,10 @@
 - 在 Codex 中有明确回答记录的异步问卷，会在读取待处理事项时重新核对并移除旧请求，减少已处理卡片残留。（[47dc6922](https://github.com/chain0414/agent-os/commit/47dc6922)）
 - Connector 上报的时间线条目序号超出范围时只拒绝这条上报，同批其他消息照常保存，不再让整个会话之后的消息都存不进数据库；升级前已经积压的条目会按原顺序排到时间线末尾保存，持续写入失败的会话也不再每秒重试刷屏日志。（[#464](https://github.com/anywhere-labs/Agents-Anywhere/pull/464)）
 
+### DSH 同步
+
+- Connector 忙碌或同步流被重建时，DSH 不再因插件的连接调用被取消或超时而退出。（[#547](https://github.com/anywhere-labs/Agents-Anywhere/pull/547)）
+
 ## 2.1.0（2026-10-27）
 
 [发布说明](docs/releases/2.1.0.md) · [GitHub Release](https://github.com/anywhere-labs/Agents-Anywhere/releases/tag/v2.1.0) · [与 2.0.3 的差异](https://github.com/anywhere-labs/Agents-Anywhere/compare/v2.0.3...v2.1.0)
