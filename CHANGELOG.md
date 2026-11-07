@@ -27,6 +27,7 @@
 
 - 修复 Codex 看图记录显示为 `unknown` 的问题，图片路径现在可用于打开预览。（[#491](https://github.com/anywhere-labs/Agents-Anywhere/pull/491)）
 - 修复被 Codex App 持有的会话执行 `/compact` 失败的问题，压缩请求现在交给持有会话的一方处理，无法联系时不再尝试抢占写入。（[#506](https://github.com/anywhere-labs/Agents-Anywhere/pull/506)）
+- 在 Codex App 或 IDE 窗口里处理审批后，Agents Anywhere 里的会话不再一直显示「等待批准」。（[#532](https://github.com/anywhere-labs/Agents-Anywhere/pull/532)）
 - DSH 同步大量或较长会话时会合并流式积压并优先校准积压会话，上传遇到瞬时断连或服务端临时错误时先重试，不再立即从头同步全部会话。（[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
 - 本地文件存储的附件上传、原图打开与内容拉取改为流式处理，图片上传响应增加可选缩略图入口，生成预览失败不影响原图访问。（[#492](https://github.com/anywhere-labs/Agents-Anywhere/pull/492)）
 
