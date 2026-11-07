@@ -10,6 +10,10 @@ TIMELINE_ORDER_SEQ_MIN = -(2**31)
 TIMELINE_ORDER_SEQ_MAX = 2**31 - 1
 
 
+class TimelineWriteBusyError(RuntimeError):
+    """The timeline transaction timed out waiting for a database lock."""
+
+
 def timeline_order_seq_in_range(order_seq: int) -> bool:
     return TIMELINE_ORDER_SEQ_MIN <= order_seq <= TIMELINE_ORDER_SEQ_MAX
 
