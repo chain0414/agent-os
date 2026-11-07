@@ -27,6 +27,7 @@
 
 - 修复 Codex 看图记录显示为 `unknown` 的问题，图片路径现在可用于打开预览。（[#491](https://github.com/anywhere-labs/Agents-Anywhere/pull/491)）
 - 修复被 Codex App 持有的会话执行 `/compact` 失败的问题，压缩请求现在交给持有会话的一方处理，无法联系时不再尝试抢占写入。（[#506](https://github.com/anywhere-labs/Agents-Anywhere/pull/506)）
+- 在 Codex App 或 IDE 窗口里处理审批后，Agents Anywhere 里的会话不再一直显示「等待批准」。（[#532](https://github.com/anywhere-labs/Agents-Anywhere/pull/532)）
 - DSH 同步大量或较长会话时会合并流式积压并优先校准积压会话，上传遇到瞬时断连或服务端临时错误时先重试，不再立即从头同步全部会话。（[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
 - 本地文件存储的附件上传、原图打开与内容拉取改为流式处理，图片上传响应增加可选缩略图入口，生成预览失败不影响原图访问。（[#492](https://github.com/anywhere-labs/Agents-Anywhere/pull/492)）
 
@@ -36,6 +37,19 @@
 - DSH 原生定时任务的指令不再被同步器丢弃，并保留原生触发时间；Connector 支持接收新版插件补传的任务与耗时，其他内部注入来源继续过滤。（[da1093f9](https://github.com/chain0414/agent-os/commit/da1093f9)、[7dc87edc](https://github.com/chain0414/agent-os/commit/7dc87edc)）
 - 在 Codex 中有明确回答记录的异步问卷，会在读取待处理事项时重新核对并移除旧请求，减少已处理卡片残留。（[47dc6922](https://github.com/chain0414/agent-os/commit/47dc6922)）
 - Connector 上报的时间线条目序号超出范围时只拒绝这条上报，同批其他消息照常保存，不再让整个会话之后的消息都存不进数据库；升级前已经积压的条目会按原顺序排到时间线末尾保存，持续写入失败的会话也不再每秒重试刷屏日志。（[#464](https://github.com/anywhere-labs/Agents-Anywhere/pull/464)）
+
+### DSH 同步
+
+- Connector 忙碌或同步流被重建时，DSH 不再因插件的连接调用被取消或超时而退出。（[#547](https://github.com/anywhere-labs/Agents-Anywhere/pull/547)）
+
+### Desktop
+
+- 本机 Connector 持续无响应时自动重启并恢复连接，短暂故障或主动停止时不会自动重启。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
+
+### Codex 与 Claude
+
+- Codex 版本检测不再阻塞发现和配置验证期间的心跳与本机控制，并避免 Windows 上版本检测超时后卡住。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
+- Claude 工具结果中的内联图片改为显示类型和大小摘要，避免含大量截图的会话因请求过大而同步失败。（[#548](https://github.com/anywhere-labs/Agents-Anywhere/pull/548)）
 
 ## 2.1.0（2026-10-27）
 
