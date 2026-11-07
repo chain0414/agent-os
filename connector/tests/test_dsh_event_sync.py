@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -19,6 +20,7 @@ from connector.runtimes.dsh.bridge.host import (
 )
 from connector.runtimes.dsh.bridge.sync import SyncRelay
 from connector.runtimes.dsh.runtime import DshRuntime
+from connector.server.errors import ConnectorNetworkError
 from connector.server.runtime_host import ConnectorRuntimeHost
 from connector.server.runtime_sync import RuntimeSyncRunner
 from tests.dsh_sync_helpers import add_page, begin_snapshot, ingest, ready_relay
@@ -180,6 +182,76 @@ def test_replayed_batch_after_a_lost_acknowledgement_is_idempotent():
     asyncio.run(exercise())
 
 
+def test_batch_retry_does_not_repeat_acknowledged_notifications():
+    async def exercise():
+        receiver = host()
+        relay = ready_relay(receiver)
+        relay.publish_notification = AsyncMock()
+        receiver.publish_runtime_notifications.side_effect = [None, ConnectorNetworkError("offline"), None, None]
+        batch = SyncBatch(subscriptionId="sub", batchSeq=1, projectionVersion=3, operations=[{
+            "kind": "notifications",
+            "notifications": [
+                {"method": "session.turnEnded", "params": {"sessionId": "session"}},
+                {"method": "runtime.capability.updated", "params": {"runtime": "dsh", "capabilities": []}},
+                {"method": "session.state.updated", "params": {"sessionId": "session", "status": "idle"}},
+            ],
+        }])
+        try:
+            with pytest.raises(ConnectorNetworkError, match="offline"):
+                await relay.ingest(batch)
+            assert relay.expected_batch == 1
+            await relay.ingest(batch)
+            assert relay.expected_batch == 2
+            assert [call.args[1][0]["method"] for call in receiver.publish_runtime_notifications.await_args_list] == [
+                "session.turnEnded", "session.state.updated", "session.state.updated",
+            ]
+            relay.publish_notification.assert_awaited_once()
+        finally:
+            await relay.close()
+
+    asyncio.run(exercise())
+
+
+def test_a_streaming_reply_is_posted_at_most_once_per_interval():
+    def upsert(status, text):
+        content = {"text": text, "format": "markdown"}
+        return {"method": "timeline.itemUpsert", "params": {"sessionId": "session", "item": {
+            **item("reply"), "status": status, "content": content,
+            "contentHash": timeline_content_hash("message", status, "assistant", content)}}}
+
+    async def exercise():
+        loop = asyncio.get_running_loop()
+        receiver = host()
+        posted = []
+        receiver.publish_runtime_notifications.side_effect = lambda runtime, notices, **kwargs: posted.append(
+            (loop.time(), [n["params"].get("item", n["params"])["status"] for n in notices]))
+        relay = ready_relay(receiver)
+        relay.streaming_post_interval = 0.1
+        try:
+            for text in ("a", "ab", "abc"):
+                await ingest(relay, {"kind": "notifications", "notifications": [upsert("running", text)]})
+            # A batch that finishes an item is never held, and neither is any other notification.
+            await ingest(relay, {"kind": "notifications", "notifications": [upsert("running", "abcd"), upsert("done", "abcde")]})
+            await ingest(relay, {"kind": "notifications", "notifications": [
+                {"method": "session.state.updated", "params": {"sessionId": "session", "status": "idle"}}]})
+            # Nor is a lone draft after other work (another session's baseline, say).
+            await ingest(relay, {"kind": "notifications", "notifications": [upsert("running", "x")]})
+            await ingest(relay, {"kind": "notifications", "notifications": [upsert("running", "xy")]})
+            returned = loop.time()
+        finally:
+            await relay.close()
+        times = [at for at, _ in posted]
+        assert [statuses for _, statuses in posted] == [
+            ["running"], ["running"], ["running"], ["running", "done"], ["idle"], ["running"], ["running"]]
+        gaps = [later - earlier for earlier, later in pairwise(times)]
+        assert gaps[0] < 0.05, "a single draft batch is acknowledged at once"
+        assert gaps[1] >= 0.09 and gaps[2] >= 0.09, "a streaming reply waits for the interval"
+        assert gaps[3] < 0.05 and gaps[4] < 0.05 and gaps[5] < 0.05
+        # Each post goes out as soon as it arrives; the acknowledgement is what waits.
+        assert returned - times[6] >= 0.09
+    asyncio.run(exercise())
+
+
 def test_event_runtime_is_not_scanned_and_reconnect_is_explicit():
     async def exercise():
         runtime = SimpleNamespace(sync_mode="events", resynchronize=AsyncMock())
@@ -215,14 +287,14 @@ def test_instance_binds_existing_notifications_and_propagates_ingest_failure():
 
 def test_legacy_workspace_inventory_does_not_write_projects_or_local_state():
     async def exercise():
-        ingest = AsyncMock()
-        base = ConnectorRuntimeHost("device", AsyncMock(), AsyncMock(), ingest_notifications=ingest)
+        notifications = AsyncMock()
+        base = ConnectorRuntimeHost("device", AsyncMock(), AsyncMock(), ingest_notifications=notifications)
         host = RuntimeInstanceHost(base, RuntimeInstanceSpec(runtime_id="rti_dsh", runtime_type="dsh", name="DSH"))
-        relay = SyncRelay(Mock(), host)
+        relay = ready_relay(host)
         base.sync_state_write = AsyncMock()
         projects = [{"id": "native", "title": "DSH name", "path": "/repo", "sessionIds": ["session"]}]
-        await relay.operation({"kind": "workspace.inventory", "complete": True, "workspaces": projects})
-        ingest.assert_not_awaited()
+        await ingest(relay, {"kind": "workspace.inventory", "complete": True, "workspaces": projects})
+        notifications.assert_not_awaited()
         base.sync_state_write.assert_not_awaited()
     asyncio.run(exercise())
 
@@ -260,13 +332,13 @@ def test_dsh_question_batches_use_existing_publishers_in_order_with_instance_bin
         async def notify(method, params):
             forwarded.append({"method": method, "params": params})
 
-        async def ingest(notifications):
+        async def ingest_notifications(notifications):
             forwarded.extend(notifications)
 
-        base = ConnectorRuntimeHost("connector", notify, AsyncMock(), ingest_notifications=ingest)
+        base = ConnectorRuntimeHost("connector", notify, AsyncMock(), ingest_notifications=ingest_notifications)
         scoped = RuntimeInstanceHost(base, RuntimeInstanceSpec(runtime_id="rti_phone", runtime_type="dsh", name="DSH"))
-        relay = SyncRelay(Mock(), scoped)
-        await relay.operation({"kind": "notifications", "notifications": [
+        relay = ready_relay(scoped)
+        await ingest(relay, {"kind": "notifications", "notifications": [
             {"method": "timeline.itemUpsert", "params": {"sessionId": "session", "item": item()}},
             {"method": "notice.upsert", "params": {"noticeId": "q", "sessionId": "session", "runtime": "dsh",
                 "type": "interaction", "interactionType": "input_request", "title": "回答问题", "status": "open",

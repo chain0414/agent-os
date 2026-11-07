@@ -8,8 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import { createAssistantMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { LocalRouter, Mesh, Router } from 'meshcall'
+import { createAssistantMessage, createToolResultMessage, createUserMessage, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { LocalRouter, Mesh, MeshCallError, Router } from 'meshcall'
 import { bridgePath, nativeRuntime } from '../fixtures/native-runtime.js'
 import { corruptHistory } from '../fixtures/corrupt-history.js'
 import { mountAgents, TextAdapter, initialSelections } from '../fixtures/agent-runtime.js'
@@ -352,6 +352,27 @@ test('changes that outpace a slow startup scan recalibrate the noisiest session 
   } finally { stream.feed.close(); await fixture.ctx.fiber.dispose(); await rm(home, { recursive: true, force: true }) }
 })
 
+test('an unreachable Server retries the same batch and keeps the feed; any other failure still ends it', { timeout: 30_000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-batch-retry-'))
+  const fixture = await nativeRuntime(home)
+  const native = fixture.ctx.agentsAnywhereRuntime.native
+  let unavailable = 2
+  const stream = follow(native, { onBatch: () => {
+    if (unavailable > 0) { unavailable -= 1; throw new MeshCallError('backend_unavailable', 'backend ingest request failed', { retryable: true }) }
+  } })
+  const refused = follow(native, { onBatch: () => { throw new MeshCallError('INVALID_PARAMS', 'refused') } })
+  try {
+    await until(() => notifications(stream.ops()).some(n => n.method === 'session.inventory.complete'), 'inventory completes after the Server returns')
+    assert.deepEqual(stream.errors, [])
+    const [first, second, third] = stream.batches
+    assert.equal(first!.batchSeq, second!.batchSeq, 'the failed batch goes out again')
+    assert.equal(first!.batchSeq, third!.batchSeq)
+    assert.deepEqual(first!.operations, third!.operations)
+    await until(() => refused.errors.length === 1, 'a refused batch ends the feed')
+    assert.equal(refused.batches.length, 1)
+  } finally { stream.feed.close(); refused.feed.close(); await fixture.ctx.fiber.dispose(); await rm(home, { recursive: true, force: true }) }
+})
+
 test('new native drafts sync once after their first real user message, including attachment-only messages', { timeout: 30_000 }, async () => {
   const home = await mkdtemp(join(tmpdir(), 'dsh-first-message-'))
   const fixture = await nativeRuntime(home)
@@ -627,6 +648,11 @@ test('official native loop crosses Python and backend despite corrupt history, i
           await fixture.plugin.await()
         } else if (action.action === 'offline-message') {
           fixture.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'offline recovery message' }] }), { surfaceOp: 'append' })
+          // The schedule producer is outside this harness, but its native log format is public.
+          const source = { kind: 'schedule' } as unknown as UserMessage['source']
+          const event = fixture.session.append('user/message', createUserMessage({ source, content: [{ type: 'text', text: 'offline scheduled prompt\nwith its full body' }] }), { surfaceOp: 'append' })
+          await fixture.ctx.sessions.flush(fixture.session)
+          await writeFile(join(home, 'native-schedule-time'), String(event.time))
         } else if (action.action === 'rename') await workspace.setTitle('DSH 项目改名')
         else if (action.action === 'archive') await fixture.ctx.workspaceRegistry.archiveSession(SessionId(action.sessionId))
         else if (action.action === 'delete') await fixture.ctx.workspaceRegistry.delete(workspace.id)
@@ -641,7 +667,7 @@ test('official native loop crosses Python and backend despite corrupt history, i
       cwd: new URL('../../../server/', import.meta.url), timeout: 60_000,
     })
     assert.match(result.stdout, /DSH event pipeline passed/)
-    assert.match(result.stdout, /offline change=1 delta, 0 snapshots/)
+    assert.match(result.stdout, /offline change=2 deltas, 0 snapshots/)
   } finally { closed = true; adapter.release?.(); await mutations; await fixture.ctx.fiber.dispose(); await rm(home, { recursive: true, force: true }) }
 })
 

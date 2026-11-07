@@ -7,6 +7,7 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import case, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from agent_server.core.models import SessionView, TimelineItem, TimelineItemIn
@@ -15,6 +16,7 @@ from agent_server.core.timeline import (
     TIMELINE_ORDER_SEQ_MAX,
     TimelineBatchWriteResult,
     TimelineItemWriteResult,
+    TimelineWriteBusyError,
     latest_timeline_items_by_id,
     next_timeline_item_revision,
     timeline_item_from_runtime_input,
@@ -653,18 +655,23 @@ class TimelineRepositoryMixin:
         behind a stuck one give their connections back to the pool.
         """
 
-        async with self._engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "SELECT pg_advisory_xact_lock(:k) "
-                    "FROM (SELECT set_config('lock_timeout', :timeout, true)) AS config"
-                ),
-                {
-                    "k": session_timeline_lock_key(session_id),
-                    "timeout": TIMELINE_LOCK_TIMEOUT,
-                },
-            )
-            yield conn
+        try:
+            async with self._engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "SELECT pg_advisory_xact_lock(:k) "
+                        "FROM (SELECT set_config('lock_timeout', :timeout, true)) AS config"
+                    ),
+                    {
+                        "k": session_timeline_lock_key(session_id),
+                        "timeout": TIMELINE_LOCK_TIMEOUT,
+                    },
+                )
+                yield conn
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) == "55P03":
+                raise TimelineWriteBusyError("Timeline write timed out waiting for a database lock") from exc
+            raise
 
 
 async def update_source_observed_at(

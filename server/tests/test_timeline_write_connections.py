@@ -29,7 +29,9 @@ from conftest import TEST_DATABASE_URL, _asyncpg_url
 from session_fixtures import create_session_with_project
 
 from agent_server.core.models import TimelineItemIn
+from agent_server.core.timeline import TimelineWriteBusyError
 from agent_server.infra.repositories.facade import Store
+from agent_server.infra.repositories.timeline import session_timeline_lock_key
 
 POOL_SIZE = 2
 WRITE_DEADLINE_SECONDS = 20
@@ -182,6 +184,27 @@ async def test_concurrent_timeline_writes_fit_in_a_small_pool(
     for index, session in enumerate(sessions[1:], start=1):
         stored = {item.id for item in await store.timeline.read(session.id)}
         assert stored == {f"sync_{index}", f"upsert_{index}"}
+    assert await database_leftovers() == {"advisory_locks": [], "open_transactions": []}
+
+
+@pytest.mark.anyio
+async def test_timeline_lock_timeout_is_transient_and_does_not_hold_the_pool(
+    pooled_store: Store,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agent_server.infra.repositories.timeline.TIMELINE_LOCK_TIMEOUT", "25ms")
+    connector, _, _ = await pooled_store.create_connector(name="dev", user_id="user_1")
+    session = await create_session_with_project(pooled_store, connector_id=connector.id)
+    blocker = await asyncpg.connect(_asyncpg_url(TEST_DATABASE_URL))
+    try:
+        async with blocker.transaction():
+            await blocker.execute("SELECT pg_advisory_xact_lock($1)", session_timeline_lock_key(session.id))
+            with pytest.raises(TimelineWriteBusyError, match="timed out"):
+                await pooled_store.reserve_timeline_sequence(session_id=session.id)
+    finally:
+        await blocker.close()
+
+    await pooled_store.reserve_timeline_sequence(session_id=session.id)
     assert await database_leftovers() == {"advisory_locks": [], "open_transactions": []}
 
 

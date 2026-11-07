@@ -267,6 +267,10 @@ changed timeline items and publish session WebSocket events for frontend
 convergence.
 
 `POST /api/v2/connector/ingest` isolates notification failures inside a batch.
+Timeline writes that time out waiting for a database lock report
+`errorType: "TimelineWriteBusyError"` inside the existing rejection entry.
+The Connector treats a response containing only these rejections as transient
+and retries the upload under the existing at-least-once delivery policy.
 One malformed or conflicting notification must not produce HTTP 500 or prevent
 later notifications in the same request from being applied. The response
 includes:

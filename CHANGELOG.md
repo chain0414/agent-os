@@ -28,7 +28,7 @@
 - 修复 Codex 看图记录显示为 `unknown` 的问题，图片路径现在可用于打开预览。（[#491](https://github.com/anywhere-labs/Agents-Anywhere/pull/491)）
 - 修复被 Codex App 持有的会话执行 `/compact` 失败的问题，压缩请求现在交给持有会话的一方处理，无法联系时不再尝试抢占写入。（[#506](https://github.com/anywhere-labs/Agents-Anywhere/pull/506)）
 - 在 Codex App 或 IDE 窗口里处理审批后，Agents Anywhere 里的会话不再一直显示「等待批准」。（[#532](https://github.com/anywhere-labs/Agents-Anywhere/pull/532)）
-- DSH 同步大量或较长会话时会合并流式积压并优先校准积压会话，上传遇到瞬时断连或服务端临时错误时先重试，不再立即从头同步全部会话。（[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
+- DSH 同步时会合并流式积压，按上传大小延长等待时间，暂时连不上 Server 时保留订阅并续传当前批次未确认的通知，避免重复提交和重新扫描全部会话。（[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)、[#525](https://github.com/anywhere-labs/Agents-Anywhere/pull/525)、[#551](https://github.com/anywhere-labs/Agents-Anywhere/pull/551)）
 - 本地文件存储的附件上传、原图打开与内容拉取改为流式处理，图片上传响应增加可选缩略图入口，生成预览失败不影响原图访问。（[#492](https://github.com/anywhere-labs/Agents-Anywhere/pull/492)）
 
 - 可以用独立协作扩展的验证脚本，在隔离原生会话中验证 DSH 与 Codex 的双向复核、异步回传及确认后编码；尚不支持直接接入桌面已有对话。（[dbb15f93](https://github.com/chain0414/agent-os/commit/dbb15f93)）
@@ -42,6 +42,8 @@
 ### DSH 同步
 
 - Connector 忙碌或同步流被重建时，DSH 不再因插件的连接调用被取消或超时而退出。（[#547](https://github.com/anywhere-labs/Agents-Anywhere/pull/547)）
+- DSH 会话历史在代理允许时可一次提交最多 45 MiB，只写入变化的条目；请求过大时会自动缩页，每页独立重试，上传期间同一设备上的其他 Agent 可继续同步。（[#525](https://github.com/anywhere-labs/Agents-Anywhere/pull/525)）
+- 被 Server 拒收的 DSH 会话会按退避计划重试，重建同步流后也不会立即重复上传该会话。（[#525](https://github.com/anywhere-labs/Agents-Anywhere/pull/525)）
 
 ### Desktop
 

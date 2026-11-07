@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "server"), str(ROOT / "connector")]
@@ -30,7 +31,7 @@ from connector.core import runtime_owner
 from connector.runtimes.dsh.identity import model_selection_id, permission_selection_id
 from connector.runtimes.dsh.provider import DshProvider
 from connector.runtimes.dsh.runtime import DshRuntime
-from connector.server.ingest import ConnectorIngestClient
+from connector.server.ingest import SYNC_BATCH_RETRIES, ConnectorIngestClient
 from connector.server.runtime_host import ConnectorRuntimeHost
 from connector.server.sync_state import JsonSyncStateStore
 
@@ -153,15 +154,48 @@ async def main(home: Path) -> None:
                     sync_state_store=JsonSyncStateStore(checkpoint_path), ingest_notifications=ingest.ingest_notifications, ingest_snapshot=ingest.ingest_snapshot)
                 host = await base_host.prepare_runtime_host("dsh")
                 runtime = DshRuntime(config, host)
-                await runtime.start()
-                await until(restart_ready, "changed prefix recovery failed")
-                uploaded = [n for n in transport.notifications[offset:] if n["method"] == "timeline.itemUpsert"]
-                assert len(uploaded) == 1 and uploaded[0]["params"]["item"]["content"]["text"] == "offline recovery message"
+                scheduled_text = "offline scheduled prompt\nwith its full body"
+                failed_uploads = 0
+
+                def fail_automation_upload(notices):
+                    nonlocal failed_uploads
+                    contains_automation = any(
+                        n["method"] == "timeline.itemUpsert"
+                        and n["params"]["item"]["content"].get("text") == scheduled_text
+                        for n in notices
+                    )
+                    if contains_automation and failed_uploads <= SYNC_BATCH_RETRIES:
+                        failed_uploads += 1
+                        return True
+                    return False
+
+                # Exhaust the Connector's HTTP retries to exercise the plugin
+                # retry through the actual MeshCall Router and idempotency key.
+                transport.fail_before_ingest = fail_automation_upload
+                with patch("connector.server.ingest.SYNC_BATCH_RETRY_BACKOFF_SECONDS", 0.01):
+                    await runtime.start()
+                    await until(restart_ready, "changed prefix recovery failed")
+                transport.fail_before_ingest = None
+                assert failed_uploads == SYNC_BATCH_RETRIES + 1
+                assert completed_inventories() == count + 1
+                uploaded = [
+                    n["params"]["item"] for n in transport.notifications[offset:]
+                    if n["method"] == "timeline.itemUpsert"
+                ]
+                assert [i["content"]["text"] for i in uploaded] == ["offline recovery message", scheduled_text]
                 assert not any(n["method"] == "timeline.sync" for n in transport.notifications[offset:])
                 main_id = next(s.id for s in sessions if s.externalSessionId == "native-main")
-                assert sum(i.content.get("text") == "offline recovery message" for i in await stored(main_id)) == 1
+                main_items = await stored(main_id)
+                assert sum(i.content.get("text") == "offline recovery message" for i in main_items) == 1
+                (scheduled,) = [i for i in main_items if i.content.get("text") == scheduled_text]
+                assert scheduled.id == uploaded[1]["id"] and scheduled.role == "user"
+                assert scheduled.content["automation"] == {
+                    "kind": "schedule",
+                    "timestampMs": int((home / "native-schedule-time").read_text()),
+                }
+                assert scheduled.source.clientMessageId is None
                 initial_client = runtime._client
-                print("DSH disk/Host restart: unchanged=0 history items; offline change=1 delta, 0 snapshots")
+                print("DSH disk/Host restart: unchanged=0 history items; offline change=2 deltas, 0 snapshots")
 
                 await native_action("draft", "native-draft")
                 await asyncio.sleep(0.2)
@@ -211,14 +245,30 @@ async def main(home: Path) -> None:
                     "params": {"sessionId": "sess-new", "item": stale}}])
                 assert any(i.id == "legacy-notice" for i in await stored("sess-new"))
                 count = completed_inventories()
+                subscription = runtime._sync.subscription_id
+
+                def snapshot_uploads():
+                    return sum(
+                        n["method"] == "timeline.sync" and n["params"].get("sessionId") == "sess-new"
+                        for n in transport.notifications
+                    )
+
+                uploads = snapshot_uploads()
                 transport.lose_snapshot_reply = True
                 await runtime.resynchronize("sess-new", external_id)
 
                 async def recovered():
-                    return transport.lost and completed_inventories() > count
+                    return (
+                        transport.lost and snapshot_uploads() == uploads + 2
+                        and not any(i.id == "legacy-notice" for i in await stored("sess-new"))
+                    )
 
-                await until(recovered, "lost reply did not trigger targeted recalibration")
-                assert runtime._client is initial_client and initial_client.connected, "a failed ingest must only replace the sync subscription"
+                # The targeted recalibration replaces the timeline; its lost reply is
+                # retried (replacing again is idempotent) instead of resubscribing.
+                await until(recovered, "lost snapshot reply was not retried")
+                assert runtime._sync.subscription_id == subscription and completed_inventories() == count, \
+                    "a retried snapshot page must not resubscribe"
+                assert runtime._client is initial_client and initial_client.connected, "a failed ingest must not reconnect the bridge"
                 assert await first_native_message(), "reconnection duplicated or lost the native first message"
                 assert "empty-native" not in {
                     s.externalSessionId for s in await store.list_sessions_for_connector(connector.id)
