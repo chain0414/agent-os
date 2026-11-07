@@ -49,6 +49,7 @@
 ### Codex 与 Claude
 
 - Codex 版本检测不再阻塞发现和配置验证期间的心跳与本机控制，并避免 Windows 上版本检测超时后卡住。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
+- Claude 工具结果中的内联图片改为显示类型和大小摘要，避免含大量截图的会话因请求过大而同步失败。（[#548](https://github.com/anywhere-labs/Agents-Anywhere/pull/548)）
 
 ## 2.1.0（2026-10-27）
 
