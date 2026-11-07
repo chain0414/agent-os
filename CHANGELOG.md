@@ -42,6 +42,14 @@
 
 - Connector 忙碌或同步流被重建时，DSH 不再因插件的连接调用被取消或超时而退出。（[#547](https://github.com/anywhere-labs/Agents-Anywhere/pull/547)）
 
+### Desktop
+
+- 本机 Connector 持续无响应时自动重启并恢复连接，短暂故障或主动停止时不会自动重启。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
+
+### Codex 与 Claude
+
+- Codex 版本检测不再阻塞发现和配置验证期间的心跳与本机控制，并避免 Windows 上版本检测超时后卡住。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
+
 ## 2.1.0（2026-10-27）
 
 [发布说明](docs/releases/2.1.0.md) · [GitHub Release](https://github.com/anywhere-labs/Agents-Anywhere/releases/tag/v2.1.0) · [与 2.0.3 的差异](https://github.com/anywhere-labs/Agents-Anywhere/compare/v2.0.3...v2.1.0)

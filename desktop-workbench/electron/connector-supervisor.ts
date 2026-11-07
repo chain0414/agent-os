@@ -1,4 +1,5 @@
 import { ConnectorEnvironment, type ConnectorEnvironmentState } from "./connector-environment";
+import { createConnectorMesh } from "./connector-mesh";
 import { terminateConnectorProcess } from "./connector-process";
 import { localRuntimePath } from "./local-runtime";
 import type { OwnershipState, RuntimeOwner } from "./local-runtime";
@@ -35,6 +36,8 @@ import { LogsServiceClient, type LogEntry, type LogPage } from "./generated/conn
 /** The Connector restarts its Router within a couple of seconds; wait it out. */
 const CONTROL_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 const PYTHON_BUILDS_GITHUB = "https://github.com/astral-sh/python-build-standalone/releases/download";
 const PYPI_SIMPLE = "https://pypi.org/simple";
 const UV_HTTP_TIMEOUT_SECONDS = "60";
@@ -642,8 +645,7 @@ export class ConnectorSupervisor {
       this.watchStreams(channel);
       return channel;
     }
-    const { Mesh, Router } = await import("meshcall");
-    const mesh = new Mesh(new Router(rendezvous.endpoint), { token: rendezvous.key, peerId: `desktop-workbench-${rendezvous.instanceId}` });
+    const mesh = await createConnectorMesh(rendezvous.endpoint, rendezvous.key, rendezvous.instanceId);
     const deadline = Date.now() + CONTROL_CONNECT_TIMEOUT_MS;
     let backoff = 200;
     for (;;) {
@@ -672,6 +674,30 @@ export class ConnectorSupervisor {
   private watchStreams(channel: ConnectorChannel): void {
     const controller = new AbortController();
     this.streams = controller;
+    const child = this.rpcProcess;
+    let probing = false;
+    let failures = 0;
+    // A live process can lose its control service or block its event loop.
+    // Stream resubscription alone cannot recover that process.
+    const healthCheck = setInterval(() => {
+      if (probing || controller.signal.aborted || this.shuttingDown || this.maintenance || !this.keepRuntimeRunning || this.state.authFailed) return;
+      probing = true;
+      void (async () => {
+        try {
+          await channel.control.getState({ timeoutMs: HEALTH_CHECK_TIMEOUT_MS });
+          failures = 0;
+        } catch (error) {
+          if (controller.signal.aborted || this.rpcProcess !== child || this.shuttingDown || this.maintenance || !this.keepRuntimeRunning || this.state.authFailed) return;
+          if (++failures < 2) return;
+          this.log({ level: "WARNING", message: `Connector control service is unresponsive; restarting RPC: ${errorMessage(error)}` });
+          await this.terminateRpcProcess();
+        } finally {
+          probing = false;
+        }
+      })().catch(error => this.logError(error));
+    }, HEALTH_CHECK_INTERVAL_MS);
+    healthCheck.unref();
+    controller.signal.addEventListener("abort", () => clearInterval(healthCheck), { once: true });
     this.options.onLogSourceChanged?.();
     const follow = async <T>(name: string, open: (since: number | null, signal: AbortSignal) => AsyncIterable<T>) => {
       let since: number | null = null;
