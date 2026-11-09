@@ -3,7 +3,8 @@ import SwiftUI
 struct ServiceEntryView: View {
     @Environment(AppState.self) private var appState
     @State private var showsPrivacyPolicy = false
-    var onManualLogin: () -> Void = {}
+    var onSignIn: () -> Void = {}
+    var onSelfHostedLogin: () -> Void = {}
     var onQRCodeLogin: () -> Void = {}
 
     var body: some View {
@@ -12,12 +13,17 @@ struct ServiceEntryView: View {
                 AuthBrandLockup()
 
                 VStack(spacing: 12) {
-                    AuthPrimaryButton(title: String(localized: "QR Code Login"), systemImage: "qrcode.viewfinder") {
-                        onQRCodeLogin()
+                    AuthPrimaryButton(title: String(localized: "Log In"), systemImage: "person.crop.circle") {
+                        onSignIn()
+                    }
+                    .accessibilityIdentifier("auth.sign-in")
+
+                    AuthGlassButton(String(localized: "Connect to your self-hosted instance"), systemImage: "server.rack") {
+                        onSelfHostedLogin()
                     }
 
-                    AuthGlassButton(String(localized: "Manual Login"), systemImage: "link") {
-                        onManualLogin()
+                    AuthGlassButton(String(localized: "QR Code Login"), systemImage: "qrcode.viewfinder") {
+                        onQRCodeLogin()
                     }
                 }
                 .frame(maxWidth: 340)

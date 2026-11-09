@@ -3,8 +3,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showingManualLogin = false
-    @State private var showingQRCodeLogin = false
+    @State private var loginEntry: LoginEntry?
 
     var body: some View {
         Group {
@@ -13,29 +12,28 @@ struct RootView: View {
                 Color(uiColor: .systemBackground)
             case .signedOut:
                 ServiceEntryView(
-                    onManualLogin: { showingManualLogin = true },
-                    onQRCodeLogin: { showingQRCodeLogin = true },
+                    onSignIn: { loginEntry = .defaultServer },
+                    onSelfHostedLogin: { loginEntry = .selfHosted },
+                    onQRCodeLogin: { loginEntry = .qrCode },
                 )
             case .signedIn:
                 ChatShellView()
             }
         }
-        .sheet(isPresented: $showingManualLogin) {
-            ManualLoginView(appState: appState) {
-                appState.activateSignedInRoute()
-                showingManualLogin = false
-            }
-        }
-        .sheet(isPresented: $showingQRCodeLogin) {
-            QRCodeLoginView(appState: appState) {
-                appState.activateSignedInRoute()
-                showingQRCodeLogin = false
+        .sheet(item: $loginEntry) { entry in
+            switch entry {
+            case .defaultServer:
+                ManualLoginView(appState: appState, mode: .defaultServer, onDashboardRequested: completeSignIn)
+            case .selfHosted:
+                ManualLoginView(appState: appState, mode: .selfHosted, onDashboardRequested: completeSignIn)
+            case .qrCode:
+                QRCodeLoginView(appState: appState, onDashboardRequested: completeSignIn)
             }
         }
         .announcementGate(
             server: appState.serverURL,
             route: appState.route,
-            blocked: showingManualLogin || showingQRCodeLogin
+            blocked: loginEntry != nil
         )
         .overlay(alignment: .top) {
             if appState.route == .signedIn, let error = appState.restoreConnectionError {
@@ -58,11 +56,24 @@ struct RootView: View {
         .background(AppTheme.appBackground(colorScheme))
     }
 
+    private func completeSignIn() {
+        appState.activateSignedInRoute()
+        loginEntry = nil
+    }
+
     private func retryServerConnection() {
         Task {
             await appState.retryServerConnection()
         }
     }
+}
+
+private enum LoginEntry: Identifiable {
+    case defaultServer
+    case selfHosted
+    case qrCode
+
+    var id: Self { self }
 }
 
 #Preview {

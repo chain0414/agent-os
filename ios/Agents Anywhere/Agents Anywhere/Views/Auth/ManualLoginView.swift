@@ -2,46 +2,51 @@ import SwiftUI
 import UIKit
 
 struct ManualLoginView: View {
+    enum Mode {
+        case defaultServer
+        case selfHosted
+    }
+
+    static let defaultServer = "https://os.begrow.ai"
+
     let appState: AppState
+    let mode: Mode
+    var onDashboardRequested: () -> Void
     @Environment(\.dismiss) private var dismiss
     @StateObject private var oauthLogin = OAuthLoginCoordinator()
-    @State private var path: [ServerLoginRoute] = []
+    @State private var showsSuccess = false
     @State private var isClosing = false
     @State private var loginRequest: WebLoginRequest?
     @State private var statusMessage: String?
     @State private var alertMessage: String?
     @State private var alertTitle = String(localized: "Sign In Failed")
 
-    static let cloudServer = "https://web.agents-anywhere.com"
-
-    var onDashboardRequested: () -> Void = {}
+    init(appState: AppState, mode: Mode = .defaultServer, onDashboardRequested: @escaping () -> Void = {}) {
+        self.appState = appState
+        self.mode = mode
+        self.onDashboardRequested = onDashboardRequested
+        _loginRequest = State(initialValue: mode == .defaultServer ? WebLoginRequest(server: Self.defaultServer) : nil)
+    }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            AuthScreen(title: String(localized: "Manual Login"), onCancel: close) {
-                VStack(spacing: 16) {
-                    AuthPrimaryButton(
-                        title: String(localized: "Connect to Anywhere Cloud"),
-                        systemImage: "cloud",
-                        isLoading: isSigningIn,
-                        disabled: isSigningIn,
-                    ) {
-                        startSignIn(server: Self.cloudServer)
+        NavigationStack {
+            Group {
+                switch mode {
+                case .defaultServer:
+                    AuthScreen(title: String(localized: "Log In"), onCancel: close) {
+                        VStack(spacing: 16) {
+                            AuthPrimaryButton(
+                                title: String(localized: "Continue in Browser"),
+                                isLoading: isSigningIn,
+                                disabled: isSigningIn,
+                            ) {
+                                startSignIn(server: Self.defaultServer)
+                            }
+                            loginStatus
+                        }
+                        .frame(maxWidth: 520)
+                        .frame(maxWidth: .infinity)
                     }
-
-                    AuthGlassButton(String(localized: "Connect to your self-hosted instance"), systemImage: "server.rack") {
-                        statusMessage = nil
-                        path.append(.selfHosted)
-                    }
-                    .disabled(isSigningIn)
-
-                    loginStatus
-                }
-                .frame(maxWidth: 520)
-                .frame(maxWidth: .infinity)
-            }
-            .navigationDestination(for: ServerLoginRoute.self) { route in
-                switch route {
                 case .selfHosted:
                     ServerAddressView(
                         isSigningIn: isSigningIn,
@@ -50,32 +55,27 @@ struct ManualLoginView: View {
                     ) {
                         loginStatus
                     }
-                case .success:
-                    AuthResultView(
-                        title: String(localized: "Login Success"),
-                        message: String(localized: "Your iPhone is signed in. Go to your dashboard to continue."),
-                        buttonTitle: String(localized: "Go to Dashboard"),
-                        buttonSystemImage: "arrow.right",
-                        symbolName: "checkmark.circle.fill",
-                        symbolColor: .green,
-                        isLoading: isClosing,
-                    ) {
-                        guard !isClosing else { return }
-                        isClosing = true
-                        onDashboardRequested()
-                    }
-                    .navigationBarBackButtonHidden(true)
                 }
+            }
+            .navigationDestination(isPresented: $showsSuccess) {
+                AuthResultView(
+                    title: String(localized: "Login Success"),
+                    message: String(localized: "Your iPhone is signed in. Go to your dashboard to continue."),
+                    buttonTitle: String(localized: "Go to Dashboard"),
+                    buttonSystemImage: "arrow.right",
+                    symbolName: "checkmark.circle.fill",
+                    symbolColor: .green,
+                    isLoading: isClosing,
+                ) {
+                    guard !isClosing else { return }
+                    isClosing = true
+                    onDashboardRequested()
+                }
+                .navigationBarBackButtonHidden(true)
             }
         }
         .task(id: loginRequest?.id) {
             if let request = loginRequest { await signIn(request) }
-        }
-        .onChange(of: path) { previous, next in
-            if next.count < previous.count {
-                cancelSignIn()
-                statusMessage = nil
-            }
         }
         .onDisappear { cancelSignIn() }
         .alert(alertTitle, isPresented: Binding(
@@ -137,8 +137,16 @@ struct ManualLoginView: View {
             guard isCurrent(request) else { return }
             await appState.completeOAuthLogin(serverURL: url, token: token, showSignedInRoute: false)
             guard isCurrent(request) else { return }
-            if appState.authError == nil, appState.me != nil { path.append(.success) }
-            else { alertTitle = String(localized: "Sign In Failed"); alertMessage = appState.authError ?? String(localized: "The login could not be completed.") }
+            if appState.authError == nil, appState.me != nil {
+                if mode == .defaultServer {
+                    onDashboardRequested()
+                } else {
+                    showsSuccess = true
+                }
+            } else {
+                alertTitle = String(localized: "Sign In Failed")
+                alertMessage = appState.authError ?? String(localized: "The login could not be completed.")
+            }
         } catch is CancellationError { }
         catch OAuthLoginError.cancelled {
             if isCurrent(request) { statusMessage = OAuthLoginError.cancelled.localizedDescription }
@@ -157,11 +165,6 @@ struct ManualLoginView: View {
 private struct WebLoginRequest {
     let id = UUID()
     let server: String
-}
-
-private enum ServerLoginRoute: Hashable {
-    case selfHosted
-    case success
 }
 
 private struct ServerAddressView<Status: View>: View {
