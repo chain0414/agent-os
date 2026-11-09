@@ -38,6 +38,7 @@
 - 在 Codex 中有明确回答记录的异步问卷，会在读取待处理事项时重新核对并移除旧请求，减少已处理卡片残留。（[47dc6922](https://github.com/chain0414/agent-os/commit/47dc6922)）
 - Connector 上报的时间线条目序号超出范围时只拒绝这条上报，同批其他消息照常保存，不再让整个会话之后的消息都存不进数据库；升级前已经积压的条目会按原顺序排到时间线末尾保存，持续写入失败的会话也不再每秒重试刷屏日志。（[#464](https://github.com/anywhere-labs/Agents-Anywhere/pull/464)）
 - 修复多个会话并发写入时间线时耗尽数据库连接，以及取消大批量写入后连接被卡住的问题。（[#556](https://github.com/anywhere-labs/Agents-Anywhere/pull/556)）
+- Connector 会跳过未变化的 Codex 会话清单上报，约每 10 分钟或重连后重新核对，并错开启动扫描和重连时间。（[#555](https://github.com/anywhere-labs/Agents-Anywhere/pull/555)）
 
 ### DSH 同步
 
