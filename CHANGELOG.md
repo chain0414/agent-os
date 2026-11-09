@@ -20,6 +20,8 @@
 
 - 首页可在 App 内用邮箱密码登录 `os.begrow.ai`，也可直接发起飞书授权并返回工作空间，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
+- 修复发送新会话时，切换到会话页会中断首次发送的问题。（[#2](https://github.com/chain0414/agent-os/pull/2)）
+
 - 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；麦克风与外扩圆环使用淡蓝色，无额外录音提示文字，录音中可直接发送最终文字，待接管会话会在发送时完成接管并复核权限。（[48c96602](https://github.com/chain0414/agent-os/commit/48c96602)、[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)、[a4f47f13](https://github.com/chain0414/agent-os/commit/a4f47f13)、[4750957b](https://github.com/chain0414/agent-os/commit/4750957b)、[d26c3896](https://github.com/chain0414/agent-os/commit/d26c3896)）
 
 - 会话标题与副标题在滚动停稳 1.5 秒后向上收起，滚动时向下展开；顶部渐变模糊在收放过程中隔开标题与正文，导航按钮保持可用，正文位置不随显隐跳动。（[0730641b](https://github.com/chain0414/agent-os/commit/0730641b)、[82602971](https://github.com/chain0414/agent-os/commit/82602971)、[21d75ba3](https://github.com/chain0414/agent-os/commit/21d75ba3)）

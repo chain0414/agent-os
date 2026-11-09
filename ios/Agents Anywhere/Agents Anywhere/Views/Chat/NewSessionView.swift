@@ -62,7 +62,7 @@ struct NewSessionView: View, Equatable {
                     canSelectModel: model.prepared?.capabilities.allows("catalog.model") == true,
                     canSelectPermission: model.prepared?.capabilities.allows("catalog.permission") == true,
                     isBusy: model.isCreating, isLoadingSettings: model.isPreparing,
-                    onSend: { text in if let session = await model.create(text: text) { onCreated(session) } },
+                    onSend: sendNewSession,
                     onApplySettings: { model.saveSelections(); return true },
                     onDraftChange: { model.scheduleDraftSave() },
                     credentials: { @MainActor @Sendable [weak service = appState.nativeChatServices?.speech] in
@@ -101,6 +101,14 @@ struct NewSessionView: View, Equatable {
             Button(String(localized: "保留草稿并允许重新创建")) { model.acknowledgeUncertainCreation() }
             Button(String(localized: "取消"), role: .cancel) {}
         }
+    }
+
+    private func sendNewSession(_ text: String) async {
+        // Staging the draft replaces this composer with the new timeline.
+        // Let creation finish even when the old composer cancels its view task.
+        await Task { @MainActor in
+            if let session = await model.create(text: text) { onCreated(session) }
+        }.value
     }
 
     private var statusContent: some View {
