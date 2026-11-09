@@ -1,6 +1,26 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "Link your Feishu account on the Agent OS website first.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "请先在 Agent OS 网页端绑定飞书账号。"
+        }
+      }
+    }
+  },
+  "Sign in with Feishu": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "飞书登录"
+        }
+      }
+    }
+  },
     "": {
       "extractionState": "manual",
       "localizations": {

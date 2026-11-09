@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum OAuthLoginError: LocalizedError, Equatable {
     case cancelled, busy, presentationUnavailable, couldNotStart, invalidAuthorizeURL, invalidCallback, randomGenerationFailed, invalidToken
     case providerError(String)
+    case feishuAccountNotLinked
     var errorDescription: String? {
         switch self {
         case .cancelled: String(localized: "Sign in was cancelled. You can try again.")
@@ -13,6 +14,7 @@ nonisolated enum OAuthLoginError: LocalizedError, Equatable {
         case .invalidCallback: String(localized: "The sign-in callback is missing, expired or does not match this attempt. Please sign in again.")
         case .invalidToken: String(localized: "The server did not return a valid sign-in token. Please try again.")
         case .randomGenerationFailed: String(localized: "A secure sign-in request could not be created. Please try again.")
+        case .feishuAccountNotLinked: String(localized: "Link your Feishu account on the Agent OS website first.")
         case .providerError(let message): String(localized: "Sign in was not completed: \(message)")
         }
     }
@@ -34,6 +36,7 @@ nonisolated enum OAuthCallback {
         guard code == nil || error == nil else { throw OAuthLoginError.invalidCallback }
         if let error, !error.isEmpty {
             if error == "access_denied" { throw OAuthLoginError.cancelled }
+            if error == "account_not_linked" { throw OAuthLoginError.feishuAccountNotLinked }
             throw OAuthLoginError.providerError(description?.isEmpty == false ? description! : error)
         }
         guard let code, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw OAuthLoginError.invalidCallback }

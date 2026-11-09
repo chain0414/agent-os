@@ -40,6 +40,16 @@ All product endpoints are mounted under `/api/v2`.
 
 The connector channel endpoints are intentionally stable. Runtime protocol refactors should happen behind this channel, not by renaming these endpoints.
 
+iOS starts Feishu sign-in at `GET /api/v2/auth/oauth/mobile/feishu` with a
+PKCE S256 `code_challenge` and a random `state`. Open this URL in the system
+authentication session. It redirects to Feishu using the server's registered
+HTTPS callback. After verifying the browser session and the already linked
+Feishu identity, the server redirects to `agents-anywhere://oauth/callback`
+with a single-use `code` and the original `state`. On authorization failure
+it returns `error`, `error_description` and `state` to the same app callback.
+The app verifies `state` and exchanges the code with its original
+`code_verifier` at `POST /api/v2/oauth/token` as `agents-anywhere-mobile`.
+
 ### Connector and runtime management
 
 ```text

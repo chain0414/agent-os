@@ -12,14 +12,12 @@ import AppKit
 @MainActor
 final class OAuthLoginCoordinator: NSObject, ObservableObject {
     private let callbackScheme = "agents-anywhere"
-    private let redirectURI = "agents-anywhere://oauth/callback"
-    private let clientID = "agents-anywhere-mobile"
     private var session: ASWebAuthenticationSession?
     private var attemptID: UUID?
     private var callback: AsyncResultGate<URL>?
     private var context: OAuthPresentationContext?
 
-    func authenticate(serverURL: URL) async throws -> OAuthTokenResponse {
+    func authenticateWithFeishu(serverURL: URL) async throws -> OAuthTokenResponse {
         guard attemptID == nil else { throw OAuthLoginError.busy }
         try Task.checkCancellation()
         guard let window = activeAnchor() else { throw OAuthLoginError.presentationUnavailable }
@@ -28,7 +26,7 @@ final class OAuthLoginCoordinator: NSObject, ObservableObject {
         defer { if attemptID == attempt { cancel() } }
         let pkce = try PKCEPair()
         let state = try PKCEPair.randomURLSafeString(byteCount: 24)
-        let authURL = try mobileOAuthURL(serverURL: serverURL, pkce: pkce, state: state)
+        let authURL = try feishuURL(serverURL: serverURL, pkce: pkce, state: state)
         let callbackURL = try await callbackURL(for: authURL, attempt: attempt)
         try Task.checkCancellation()
         let code = try OAuthCallback.authorizationCode(callbackURL, expectedState: state)
@@ -63,7 +61,7 @@ final class OAuthLoginCoordinator: NSObject, ObservableObject {
             try await withCheckedThrowingContinuation { continuation in
                 result.install(continuation)
                 guard !Task.isCancelled else { result.resolve(.failure(CancellationError())); return }
-                let browser = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] url, error in
+                let browser = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { [weak self] url, error in
                     Task { @MainActor in
                         if self?.attemptID == attempt { self?.session = nil }
                     }
@@ -83,23 +81,15 @@ final class OAuthLoginCoordinator: NSObject, ObservableObject {
         } onCancel: { result.resolve(.failure(CancellationError())) }
     }
 
-    private func mobileOAuthURL(serverURL: URL, pkce: PKCEPair, state: String) throws -> URL {
-        guard var components = URLComponents(
-            url: URL(string: "/", relativeTo: serverURL.normalizedServerURL())?.absoluteURL ?? serverURL,
-            resolvingAgainstBaseURL: false,
-        ) else {
+    private func feishuURL(serverURL: URL, pkce: PKCEPair, state: String) throws -> URL {
+        guard let endpoint = URL(string: v2APIPath("/auth/oauth/mobile/feishu"), relativeTo: serverURL)?.absoluteURL,
+              var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw OAuthLoginError.invalidAuthorizeURL
         }
-        let queryItems = [
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+        components.queryItems = [
             URLQueryItem(name: "code_challenge", value: pkce.challenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "scope", value: "profile"),
             URLQueryItem(name: "state", value: state),
         ]
-        components.percentEncodedFragment = hashRouteFragment("mobile-oauth", queryItems: queryItems)
         guard let url = components.url else { throw OAuthLoginError.invalidAuthorizeURL }
         return url
     }
@@ -111,15 +101,6 @@ final class OAuthLoginCoordinator: NSObject, ObservableObject {
     let anchor: ASPresentationAnchor
     init(anchor: ASPresentationAnchor) { self.anchor = anchor }
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { anchor }
-}
-
-private func hashRouteFragment(_ route: String, queryItems: [URLQueryItem]) -> String {
-    var fragmentComponents = URLComponents()
-    fragmentComponents.queryItems = queryItems
-    guard let query = fragmentComponents.percentEncodedQuery, !query.isEmpty else {
-        return "/\(route)"
-    }
-    return "/\(route)?\(query)"
 }
 
 private struct PKCEPair {

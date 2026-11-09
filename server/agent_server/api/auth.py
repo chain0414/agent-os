@@ -5,11 +5,12 @@ import os
 import re
 import secrets
 import time
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_server.core.api_namespace import api_v2_path
 from agent_server.core.auth import (
@@ -44,6 +45,7 @@ from agent_server.core.models import (
     UpdateProfileRequest,
     UserView,
 )
+from agent_server.core.oauth_clients import MOBILE_OAUTH_CLIENT
 from agent_server.core.utc import utc_now
 from agent_server.deps import current_user, get_store, user_id_from_authorization
 from agent_server.infra.repositories.email_accounts import (
@@ -82,7 +84,15 @@ MOBILE_REFRESH_TOKEN_KIND = "mobile_refresh"
 MOBILE_LOGIN_EXPIRES_IN = 120
 MOBILE_REFRESH_EXPIRES_IN = 60 * 60 * 24 * 30
 FEISHU_OAUTH_BROWSER_COOKIE = "agent_os_feishu_oauth"
+FEISHU_MOBILE_BROWSER_COOKIE = "agent_os_feishu_mobile_oauth"
 FEISHU_OAUTH_COOKIE_PATH = api_v2_path("/auth/oauth")
+
+
+class FeishuMobileStartQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code_challenge: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+    state: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
 
 
 @router.get("/auth/config", response_model=AuthConfigResponse)
@@ -299,6 +309,30 @@ async def oauth_start(
     return OAuthStartResponse(authorizeUrl=authorize_url, serverTime=utc_now())
 
 
+@router.get("/auth/oauth/mobile/feishu", response_class=RedirectResponse)
+async def feishu_mobile_start(
+    request: Request,
+    query: Annotated[FeishuMobileStartQuery, Query()],
+    db: Annotated[Store, Depends(get_store)],
+) -> RedirectResponse:
+    config = await db.get_oauth_provider_config()
+    if not is_feishu(config) or not oauth_enabled(config):
+        raise HTTPException(status_code=404, detail="Feishu login is not configured")
+    browser_nonce = secrets.token_urlsafe(32)
+    authorize_url = build_authorize_url(
+        config,
+        redirect_uri=_oauth_redirect_uri(request),
+        browser_nonce=browser_nonce,
+        mobile_request=query.model_dump(),
+    )
+    response = RedirectResponse(authorize_url, status_code=302, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        FEISHU_MOBILE_BROWSER_COOKIE, browser_nonce, max_age=OAUTH_TOKEN_EXPIRES_IN,
+        path=FEISHU_OAUTH_COOKIE_PATH, secure=True, httponly=True, samesite="lax",
+    )
+    return response
+
+
 @router.get("/auth/oauth/callback")
 async def oauth_callback(
     request: Request,
@@ -312,8 +346,16 @@ async def oauth_callback(
     if feishu:
         payload = state_for_provider(config, state)
         expected = payload.get("browserNonce") if payload else None
+        mobile_request = payload.get("mobileRequest") if payload else None
+        if isinstance(mobile_request, dict):
+            actual = request.cookies.get(FEISHU_MOBILE_BROWSER_COOKIE, "")
+            if not _matches_browser_nonce(expected, actual):
+                return _feishu_mobile_error(mobile_request["state"], "invalid_request", "Feishu login session expired.")
+            result = await _feishu_mobile_callback(request, config, code, state, error, mobile_request, db)
+            result.delete_cookie(FEISHU_MOBILE_BROWSER_COOKIE, path=FEISHU_OAUTH_COOKIE_PATH, secure=True, httponly=True)
+            return result
         actual = request.cookies.get(FEISHU_OAUTH_BROWSER_COOKIE, "")
-        if not isinstance(expected, str) or not hmac.compare_digest(actual.encode(), expected.encode()):
+        if not _matches_browser_nonce(expected, actual):
             return _oauth_frontend_redirect(request, {"oauth_error": "invalid Feishu login session"})
     return_to = return_to_from_state(config, state)
     result = await _oauth_callback_result(request, config, code, state, error, return_to, db)
@@ -321,6 +363,56 @@ async def oauth_callback(
         result.delete_cookie(FEISHU_OAUTH_BROWSER_COOKIE, path=FEISHU_OAUTH_COOKIE_PATH, secure=True, httponly=True)
         result.headers["Cache-Control"] = "no-store"
     return result
+
+
+def _matches_browser_nonce(expected: Any, actual: str) -> bool:
+    return isinstance(expected, str) and hmac.compare_digest(actual.encode(), expected.encode())
+
+
+async def _feishu_mobile_callback(
+    request: Request,
+    config: dict[str, Any],
+    code: str | None,
+    state: str | None,
+    error: str | None,
+    mobile_request: dict[str, str],
+    db: Store,
+) -> RedirectResponse:
+    app_state = mobile_request["state"]
+    if error or not code:
+        return _feishu_mobile_error(app_state, "access_denied", "Feishu sign-in was not authorized.")
+    try:
+        identity = await exchange_code_for_identity(
+            config, code=code, state=state, redirect_uri=_oauth_redirect_uri(request),
+        )
+    except Exception:  # noqa: BLE001 - Keep provider errors and credentials out of the redirect.
+        return _feishu_mobile_error(app_state, "server_error", "Feishu login could not be completed.")
+    user = await db.oauth_user_for_subject(provider=identity.provider, subject=identity.subject)
+    if user is None:
+        return _feishu_mobile_error(
+            app_state, "account_not_linked", "Link your Feishu account on the Agent OS website first.",
+        )
+    app_code = await db.create_oauth_authorization_code(
+        client_id=MOBILE_OAUTH_CLIENT.client_id,
+        user_id=user.userId,
+        redirect_uri=MOBILE_OAUTH_CLIENT.redirect_uri,
+        scope="profile",
+        code_challenge=mobile_request["code_challenge"],
+        code_challenge_method="S256",
+    )
+    return _feishu_mobile_redirect({"code": app_code, "state": app_state})
+
+
+def _feishu_mobile_error(state: str, error: str, description: str) -> RedirectResponse:
+    return _feishu_mobile_redirect({"state": state, "error": error, "error_description": description})
+
+
+def _feishu_mobile_redirect(params: dict[str, str]) -> RedirectResponse:
+    return RedirectResponse(
+        f"{MOBILE_OAUTH_CLIENT.redirect_uri}?{urlencode(params)}",
+        status_code=302,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def _oauth_callback_result(

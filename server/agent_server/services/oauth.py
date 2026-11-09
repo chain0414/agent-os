@@ -42,13 +42,19 @@ def oauth_enabled(config: dict[str, Any] | None) -> bool:
 def build_authorize_url(
     config: dict[str, Any], *, redirect_uri: str, return_to: str | None = None,
     browser_nonce: str | None = None,
+    mobile_request: dict[str, str] | None = None,
 ) -> str:
     _require_enabled_config(config)
     state = None
     if return_to or browser_nonce:
         state = create_signed_token(
             OAUTH_STATE_TOKEN_KIND,
-            {"provider": _provider(config), "returnTo": return_to, "browserNonce": browser_nonce},
+            {
+                "provider": _provider(config),
+                "returnTo": return_to,
+                "browserNonce": browser_nonce,
+                **({"mobileRequest": mobile_request} if mobile_request is not None else {}),
+            },
             OAUTH_TOKEN_EXPIRES_IN,
         )
     scopes = str(config.get("scopes") or ("" if is_feishu(config) else "openid profile email"))
