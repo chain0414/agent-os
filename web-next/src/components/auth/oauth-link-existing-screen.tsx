@@ -8,6 +8,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Field, FieldGroup, FieldLabel as Label } from "@/components/ui/field"
 import { AuthShell } from "./auth-shell"
 import { useAuth } from "./auth-context"
+import { isValidEmail } from "@/features/auth/account-profile"
 import { useTranslations } from "next-intl"
 
 export function OAuthLinkExistingScreen() {
@@ -16,6 +17,7 @@ export function OAuthLinkExistingScreen() {
   const [confirmed, setConfirmed] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [password, setPassword] = useState("")
+  const [enteredEmail, setEnteredEmail] = useState("")
 
   if (!oauthPending || oauthPending.status !== "needs_password") {
     return (
@@ -30,11 +32,15 @@ export function OAuthLinkExistingScreen() {
     )
   }
 
-  const email = oauthPending.email
+  const email = oauthPending.email || enteredEmail.trim().toLowerCase()
+  const canLink = !loading && isValidEmail(email) && !!password
+  const link = () => {
+    if (canLink) void finalizeOAuth({ email, password }).catch(() => undefined)
+  }
   const provider = oauthProviderLabel ?? "OAuth"
   const fallback = email.slice(0, 2).toUpperCase() || "AA"
 
-  if (!confirmed) {
+  if (oauthPending.email && !confirmed) {
     return (
       <AuthShell>
         <div className="flex flex-col items-center gap-3 text-center mb-8">
@@ -82,6 +88,23 @@ export function OAuthLinkExistingScreen() {
       </div>
 
       <FieldGroup>
+        {!oauthPending.email ? (
+          <Field>
+            <Label htmlFor="oauth-link-email">{t("fields.email")}</Label>
+            <InputGroup className="h-11 rounded-lg">
+              <InputGroupInput
+                id="oauth-link-email"
+                type="email"
+                name="email"
+                inputMode="email"
+                autoComplete="username"
+                autoCapitalize="none"
+                value={enteredEmail}
+                onChange={(event) => setEnteredEmail(event.currentTarget.value)}
+              />
+            </InputGroup>
+          </Field>
+        ) : null}
         <Field>
           <Label htmlFor="oauth-link-password">{t("fields.password")}</Label>
           <InputGroup className="h-11 rounded-lg">
@@ -93,9 +116,7 @@ export function OAuthLinkExistingScreen() {
               value={password}
               onChange={(event) => setPassword(event.currentTarget.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && password) {
-                  void finalizeOAuth({ email, password }).catch(() => undefined)
-                }
+                if (event.key === "Enter") link()
               }}
               className="code-mono"
               autoComplete="current-password"
@@ -112,14 +133,16 @@ export function OAuthLinkExistingScreen() {
 
         <Button
           className="h-11 w-full font-medium"
-          disabled={loading || !password}
-          onClick={() => void finalizeOAuth({ email, password }).catch(() => undefined)}
+          disabled={!canLink}
+          onClick={link}
         >
           {loading ? t("login.signingIn") : t("oauth.linkSubmit")}
         </Button>
-        <Button variant="outline" className="h-11 w-full" onClick={() => setConfirmed(false)}>
-          {t("oauth.useAnotherUser")}
-        </Button>
+        {oauthPending.email ? (
+          <Button variant="outline" className="h-11 w-full" onClick={() => setConfirmed(false)}>
+            {t("oauth.useAnotherUser")}
+          </Button>
+        ) : null}
         <Button variant="ghost" className="h-11 w-full text-muted-foreground" onClick={cancelOAuth}>
           {t("oauth.back")}
         </Button>

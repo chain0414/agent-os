@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hmac
 import os
 import re
 import secrets
 import time
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from agent_server.core.api_namespace import api_v2_path
@@ -56,12 +58,15 @@ from agent_server.services.email_delivery import (
     send_verification_email,
 )
 from agent_server.services.oauth import (
+    OAUTH_TOKEN_EXPIRES_IN,
     OAuthConfigError,
     build_authorize_url,
     create_pending_token,
     exchange_code_for_identity,
+    is_feishu,
     oauth_enabled,
     return_to_from_state,
+    state_for_provider,
     verify_pending_token,
 )
 from agent_server.services.setup_tokens import SetupTokenService
@@ -76,6 +81,8 @@ MOBILE_LOGIN_TOKEN_KIND = "mobile_login"
 MOBILE_REFRESH_TOKEN_KIND = "mobile_refresh"
 MOBILE_LOGIN_EXPIRES_IN = 120
 MOBILE_REFRESH_EXPIRES_IN = 60 * 60 * 24 * 30
+FEISHU_OAUTH_BROWSER_COOKIE = "agent_os_feishu_oauth"
+FEISHU_OAUTH_COOKIE_PATH = api_v2_path("/auth/oauth")
 
 
 @router.get("/auth/config", response_model=AuthConfigResponse)
@@ -265,18 +272,30 @@ async def update_profile(
 @router.get("/auth/oauth/start", response_model=OAuthStartResponse)
 async def oauth_start(
     request: Request,
+    response: Response,
     returnTo: str | None = None,
     db: Store = Depends(get_store),
 ) -> OAuthStartResponse:
     config = await db.get_oauth_provider_config()
+    browser_nonce = None
+    if is_feishu(config):
+        returnTo = _feishu_return_to(request, returnTo)
+        browser_nonce = secrets.token_urlsafe(32)
     try:
         authorize_url = build_authorize_url(
             config,
             redirect_uri=_oauth_redirect_uri(request, return_to=returnTo),
             return_to=returnTo,
+            browser_nonce=browser_nonce,
         )
     except OAuthConfigError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if browser_nonce:
+        response.set_cookie(
+            FEISHU_OAUTH_BROWSER_COOKIE, browser_nonce, max_age=OAUTH_TOKEN_EXPIRES_IN,
+            path=FEISHU_OAUTH_COOKIE_PATH, secure=True, httponly=True, samesite="lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
     return OAuthStartResponse(authorizeUrl=authorize_url, serverTime=utc_now())
 
 
@@ -289,7 +308,30 @@ async def oauth_callback(
     db: Store = Depends(get_store),
 ) -> RedirectResponse:
     config = await db.get_oauth_provider_config()
+    feishu = is_feishu(config)
+    if feishu:
+        payload = state_for_provider(config, state)
+        expected = payload.get("browserNonce") if payload else None
+        actual = request.cookies.get(FEISHU_OAUTH_BROWSER_COOKIE, "")
+        if not isinstance(expected, str) or not hmac.compare_digest(actual.encode(), expected.encode()):
+            return _oauth_frontend_redirect(request, {"oauth_error": "invalid Feishu login session"})
     return_to = return_to_from_state(config, state)
+    result = await _oauth_callback_result(request, config, code, state, error, return_to, db)
+    if feishu:
+        result.delete_cookie(FEISHU_OAUTH_BROWSER_COOKIE, path=FEISHU_OAUTH_COOKIE_PATH, secure=True, httponly=True)
+        result.headers["Cache-Control"] = "no-store"
+    return result
+
+
+async def _oauth_callback_result(
+    request: Request,
+    config: dict[str, Any],
+    code: str | None,
+    state: str | None,
+    error: str | None,
+    return_to: str | None,
+    db: Store,
+) -> RedirectResponse:
     if error:
         return _oauth_frontend_redirect(request, {"oauth_error": error}, return_to=return_to)
     if not code:
@@ -306,7 +348,8 @@ async def oauth_callback(
             redirect_uri=_oauth_redirect_uri(request, return_to=return_to),
         )
     except Exception as exc:  # noqa: BLE001 - OAuth provider failures return to the UI.
-        return _oauth_frontend_redirect(request, {"oauth_error": str(exc)}, return_to=return_to)
+        detail = "Feishu login could not be completed" if is_feishu(config) else str(exc)
+        return _oauth_frontend_redirect(request, {"oauth_error": detail}, return_to=return_to)
 
     bound = await db.oauth_user_for_subject(provider=identity.provider, subject=identity.subject)
     if bound is not None:
@@ -327,12 +370,13 @@ async def oauth_callback(
             existing = await db.user_for_email(identity.email)
         except ValueError:
             pass
+    link_only = is_feishu(config) and not await db.is_oauth_registration_open()
     return _oauth_frontend_redirect(
         request,
         {
-            "oauth_status": "needs_password" if existing else "needs_registration",
+            "oauth_status": "needs_password" if existing or link_only else "needs_registration",
             "oauth_pending": create_pending_token(identity),
-            "oauth_email": identity.email or "",
+            "oauth_email": identity.email if identity.email and (existing or not link_only) else "",
             "oauth_display_name": identity.display_name or "",
         },
         return_to=return_to,
@@ -682,6 +726,18 @@ def _password_hash_from_oauth_finalize(payload: OAuthFinalizeRequest) -> str | N
 
 def _oauth_redirect_uri(request: Request, *, return_to: str | None = None) -> str:
     return f"{_oauth_public_origin(request, return_to=return_to)}{api_v2_path('/auth/oauth/callback')}"
+
+
+def _feishu_return_to(request: Request, return_to: str | None) -> str:
+    origin = _oauth_public_origin(request)
+    target = return_to or f"{origin}/"
+    try:
+        parts = urlsplit(target)
+        if parts.scheme == "https" and f"{parts.scheme}://{parts.netloc}" == origin and "\\" not in target:
+            return target
+    except ValueError:
+        pass
+    raise HTTPException(status_code=422, detail="Feishu login requires a same-origin HTTPS return URL")
 
 
 def _oauth_public_origin(request: Request, *, return_to: str | None = None) -> str:

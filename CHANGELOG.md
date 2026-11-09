@@ -10,6 +10,10 @@
 
 - iOS 语音输入需配套 Server 2.2 并配置百炼 API Key；音频联网发送至阿里云转写，其他会话功能保持兼容。（[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)）
 
+### Web 与 Desktop 界面
+
+- 自托管实例可启用飞书登录，首次绑定时用现有邮箱和密码确认账号，之后可以直接用已绑定的飞书身份登录。（[#1](https://github.com/chain0414/agent-os/pull/1)）
+
 ### iOS
 
 - 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；麦克风与外扩圆环使用淡蓝色，无额外录音提示文字，录音中可直接发送最终文字，待接管会话会在发送时完成接管并复核权限。（[48c96602](https://github.com/chain0414/agent-os/commit/48c96602)、[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)、[a4f47f13](https://github.com/chain0414/agent-os/commit/a4f47f13)、[4750957b](https://github.com/chain0414/agent-os/commit/4750957b)、[d26c3896](https://github.com/chain0414/agent-os/commit/d26c3896)）

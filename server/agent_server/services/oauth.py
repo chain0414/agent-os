@@ -39,20 +39,24 @@ def oauth_enabled(config: dict[str, Any] | None) -> bool:
     return bool(config and config.get("enabled") and config.get("authorizeUrl") and config.get("clientId"))
 
 
-def build_authorize_url(config: dict[str, Any], *, redirect_uri: str, return_to: str | None = None) -> str:
+def build_authorize_url(
+    config: dict[str, Any], *, redirect_uri: str, return_to: str | None = None,
+    browser_nonce: str | None = None,
+) -> str:
     _require_enabled_config(config)
     state = None
-    if return_to:
+    if return_to or browser_nonce:
         state = create_signed_token(
             OAUTH_STATE_TOKEN_KIND,
-            {"provider": _provider(config), "returnTo": return_to},
+            {"provider": _provider(config), "returnTo": return_to, "browserNonce": browser_nonce},
             OAUTH_TOKEN_EXPIRES_IN,
         )
+    scopes = str(config.get("scopes") or ("" if is_feishu(config) else "openid profile email"))
     params = {
         "client_id": str(config["clientId"]),
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": str(config.get("scopes") or "openid profile email"),
+        **({"scope": scopes} if scopes else {}),
         **({"state": state} if state else {}),
     }
     return f"{config['authorizeUrl']}?{urlencode(params)}"
@@ -97,20 +101,30 @@ async def exchange_code_for_identity(
         )
         userinfo_response.raise_for_status()
         claims = userinfo_response.json()
+    if is_feishu(config):
+        if not isinstance(claims, dict) or claims.get("code") != 0 or not isinstance(claims.get("data"), dict):
+            raise OAuthConfigError("invalid Feishu user info response")
+        claims = claims["data"]
     return identity_from_claims(config, claims)
 
 
 def return_to_from_state(config: dict[str, Any], state: str | None) -> str | None:
-    if not state:
-        return None
-    payload = verify_signed_token(OAUTH_STATE_TOKEN_KIND, state)
+    payload = state_for_provider(config, state)
     if not payload:
-        return None
-    provider = payload.get("provider")
-    if provider is not None and provider != _provider(config):
         return None
     return_to = payload.get("returnTo")
     return return_to if isinstance(return_to, str) and return_to else None
+
+
+def state_for_provider(config: dict[str, Any], state: str | None) -> dict[str, Any] | None:
+    payload = verify_signed_token(OAUTH_STATE_TOKEN_KIND, state) if state else None
+    if payload and payload.get("provider") in (None, _provider(config)):
+        return payload
+    return None
+
+
+def is_feishu(config: dict[str, Any]) -> bool:
+    return _provider(config) == "feishu"
 
 
 def identity_from_claims(config: dict[str, Any], claims: dict[str, Any]) -> OAuthIdentity:
