@@ -9,15 +9,17 @@ import hashlib
 import time
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
+from conftest import ApiV2TestClient as TestClient
+from conftest import make_test_client
+
 from agent_server.core.auth import (
     create_signed_token,
     hash_password,
 )
 from agent_server.core.setup_token import SetupToken
 from agent_server.services.oauth import OAuthIdentity, create_pending_token
-from conftest import ApiV2TestClient as TestClient
-from conftest import make_test_client
 
 
 def make_client(tmp_path) -> TestClient:
@@ -779,6 +781,64 @@ def test_oauth_start_uses_return_to_origin_for_redirect_uri(tmp_path):
     authorize_url = response.json()["authorizeUrl"]
     query = parse_qs(urlparse(authorize_url).query)
     assert query["redirect_uri"] == ["https://app.example.com/api/v2/auth/oauth/callback"]
+
+
+def test_feishu_oauth_requires_same_origin_and_original_browser(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SERVER_PUBLIC_ORIGIN", "https://app.example.com")
+    client = make_client(tmp_path)
+    admin = admin_token(client)
+    configured = client.patch(
+        "/admin/settings",
+        headers=bearer(admin),
+        json={"oauth": {
+            "enabled": True, "provider": "feishu", "label": "Feishu",
+            "authorizeUrl": "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
+            "tokenUrl": "https://accounts.feishu.cn/oauth/v3/token",
+            "userInfoUrl": "https://open.feishu.cn/open-apis/authen/v1/user_info",
+            "clientId": "example-client", "clientSecret": "example-secret", "scopes": "",
+            "subjectClaim": "open_id",
+        }},
+    )
+    assert configured.status_code == 200
+    assert client.get("/auth/oauth/start", params={"returnTo": "https://foreign.example/"}).status_code == 422
+
+    start = client.get("/auth/oauth/start", params={"returnTo": "https://app.example.com/#/mobile-oauth"})
+    assert start.status_code == 200
+    query = parse_qs(urlparse(start.json()["authorizeUrl"]).query)
+    assert query["redirect_uri"] == ["https://app.example.com/api/v2/auth/oauth/callback"]
+    assert "scope" not in query
+    assert "HttpOnly" in start.headers["set-cookie"] and "Secure" in start.headers["set-cookie"]
+
+    requests = []
+
+    def provider(request):
+        requests.append(request.url.path)
+        if request.url.path == "/oauth/v3/token":
+            assert parse_qs(request.content.decode())["grant_type"] == ["authorization_code"]
+            return httpx.Response(200, json={"code": 0, "access_token": "example-access"})
+        assert request.headers["authorization"] == "Bearer example-access"
+        return httpx.Response(200, json={"code": 0, "data": {"open_id": "ou_example", "name": "Example"}})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: async_client(transport=httpx.MockTransport(provider), **kwargs))
+    callback = "/auth/oauth/callback"
+    params = {"state": query["state"][0], "code": "example-code"}
+    denied = client.get(callback, params=params, follow_redirects=False)
+    assert "oauth_error" in parse_qs(urlparse(denied.headers["location"]).query)
+    assert not requests
+
+    name, value = next(iter(start.cookies.items()))
+    allowed = client.get(callback, params=params, headers={"Cookie": f"{name}={value}"}, follow_redirects=False)
+    location = urlparse(allowed.headers["location"])
+    assert location.fragment == "/mobile-oauth"
+    result = parse_qs(location.query)
+    assert result["oauth_status"] == ["needs_password"]
+    assert requests == ["/oauth/v3/token", "/open-apis/authen/v1/user_info"]
+    finalize = {"pendingToken": result["oauth_pending"][0], "email": "user1@example.test"}
+    assert client.post("/auth/oauth/finalize", json={**finalize, "password": "wrong"}).status_code == 401
+    linked = client.post("/auth/oauth/finalize", json={**finalize, "password": "secret"})
+    assert linked.status_code == 200
+    assert linked.json()["auth"]["email"] == "user1@example.test"
 
 
 def test_admin_oauth_client_configuration_is_closed(tmp_path):
