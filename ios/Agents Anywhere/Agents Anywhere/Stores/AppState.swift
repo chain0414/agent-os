@@ -6,6 +6,8 @@ import UIKit
 
 @MainActor @Observable
 final class AppState {
+    static let defaultServerURL = URL(string: "https://os.begrow.ai")!
+
     enum Route {
         case loading
         case signedOut

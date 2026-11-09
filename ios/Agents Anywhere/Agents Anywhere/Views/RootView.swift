@@ -3,8 +3,6 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showingManualLogin = false
-    @State private var showingQRCodeLogin = false
 
     var body: some View {
         Group {
@@ -12,30 +10,15 @@ struct RootView: View {
             case .loading:
                 Color(uiColor: .systemBackground)
             case .signedOut:
-                ServiceEntryView(
-                    onManualLogin: { showingManualLogin = true },
-                    onQRCodeLogin: { showingQRCodeLogin = true },
-                )
+                ServiceEntryView()
             case .signedIn:
                 ChatShellView()
-            }
-        }
-        .sheet(isPresented: $showingManualLogin) {
-            ManualLoginView(appState: appState) {
-                appState.activateSignedInRoute()
-                showingManualLogin = false
-            }
-        }
-        .sheet(isPresented: $showingQRCodeLogin) {
-            QRCodeLoginView(appState: appState) {
-                appState.activateSignedInRoute()
-                showingQRCodeLogin = false
             }
         }
         .announcementGate(
             server: appState.serverURL,
             route: appState.route,
-            blocked: showingManualLogin || showingQRCodeLogin
+            blocked: false,
         )
         .overlay(alignment: .top) {
             if appState.route == .signedIn, let error = appState.restoreConnectionError {

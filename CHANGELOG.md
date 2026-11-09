@@ -6,6 +6,8 @@
 
 ### 升级须知
 
+- iOS 直接飞书登录需配套 Server 2.4，已有飞书绑定可继续使用，无新增数据库迁移。（[#2](https://github.com/chain0414/agent-os/pull/2)）
+
 - 附件接口新增可选缩略图入口，各端源码版本同步为 2.3.0；源码部署需重新同步 Server 依赖以安装 Pillow，DSH 同步改进需配套更新 Connector 与 DSH Bridge，无新增数据库迁移。（[#492](https://github.com/anywhere-labs/Agents-Anywhere/pull/492)、[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
 
 - iOS 语音输入需配套 Server 2.2 并配置百炼 API Key；音频联网发送至阿里云转写，其他会话功能保持兼容。（[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)）
@@ -15,6 +17,12 @@
 - 自托管实例可启用飞书登录，首次绑定时用现有邮箱和密码确认账号，之后可以直接用已绑定的飞书身份登录。（[#1](https://github.com/chain0414/agent-os/pull/1)）
 
 ### iOS
+
+- iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
+
+- 首页可在 App 内用邮箱密码登录 `os.begrow.ai`，也可直接发起飞书授权并返回工作空间，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)）
+
+- 修复发送新会话时，切换到会话页会中断首次发送的问题。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 新会话和已有会话支持阿里云实时语音输入，首次无需下载模型，可识别中文与英文混说；麦克风与外扩圆环使用淡蓝色，无额外录音提示文字，录音中可直接发送最终文字，待接管会话会在发送时完成接管并复核权限。（[48c96602](https://github.com/chain0414/agent-os/commit/48c96602)、[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)、[a4f47f13](https://github.com/chain0414/agent-os/commit/a4f47f13)、[4750957b](https://github.com/chain0414/agent-os/commit/4750957b)、[d26c3896](https://github.com/chain0414/agent-os/commit/d26c3896)）
 

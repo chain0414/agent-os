@@ -841,6 +841,92 @@ def test_feishu_oauth_requires_same_origin_and_original_browser(tmp_path, monkey
     assert linked.json()["auth"]["email"] == "user1@example.test"
 
 
+def test_native_feishu_login_returns_single_use_pkce_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SERVER_PUBLIC_ORIGIN", "https://app.example.com")
+    client = make_client(tmp_path)
+    admin = admin_token(client)
+    verifier = "native-feishu-test-verifier"
+    start_params = {"code_challenge": pkce_challenge(verifier), "state": "native-state"}
+    start_path = "/auth/oauth/mobile/feishu"
+    assert client.get(start_path, params=start_params).status_code == 404
+
+    response = client.patch(
+        "/admin/settings",
+        headers=bearer(admin),
+        json={"oauth": {
+            "enabled": True, "provider": "feishu", "label": "Feishu",
+            "authorizeUrl": "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
+            "tokenUrl": "https://accounts.feishu.cn/oauth/v3/token",
+            "userInfoUrl": "https://open.feishu.cn/open-apis/authen/v1/user_info",
+            "clientId": "example-client", "clientSecret": "example-secret",
+            "subjectClaim": "open_id",
+        }},
+    )
+    assert response.status_code == 200
+    assert client.get(start_path, params={**start_params, "code_challenge": "invalid"}).status_code == 422
+    assert client.get(start_path, params={**start_params, "redirect_uri": "https://foreign.example"}).status_code == 422
+
+    def start():
+        response = client.get(start_path, params=start_params, follow_redirects=False)
+        assert response.status_code == 302
+        authorize = urlparse(response.headers["location"])
+        assert authorize.netloc == "accounts.feishu.cn"
+        params = parse_qs(authorize.query)
+        assert params["redirect_uri"] == ["https://app.example.com/api/v2/auth/oauth/callback"]
+        assert "HttpOnly" in response.headers["set-cookie"] and "Secure" in response.headers["set-cookie"]
+        name, value = next(iter(response.cookies.items()))
+        return params["state"][0], {"Cookie": f"{name}={value}"}
+
+    def callback(state, headers=None, **params):
+        response = client.get(
+            "/auth/oauth/callback", params={"state": state, **params}, headers=headers, follow_redirects=False,
+        )
+        redirect = urlparse(response.headers["location"])
+        assert (redirect.scheme, redirect.netloc, redirect.path) == ("agents-anywhere", "oauth", "/callback")
+        result = parse_qs(redirect.query)
+        assert result["state"] == ["native-state"]
+        assert response.headers["Cache-Control"] == "no-store"
+        return result
+
+    provider_requests = []
+
+    def provider(request):
+        provider_requests.append(request.url.path)
+        if request.url.path == "/oauth/v3/token":
+            return httpx.Response(200, json={"code": 0, "access_token": "example-access"})
+        return httpx.Response(200, json={"code": 0, "data": {"open_id": "ou_native_example", "name": "Example"}})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: async_client(transport=httpx.MockTransport(provider), **kwargs))
+    state, headers = start()
+    assert callback(state, code="example-code")["error"] == ["invalid_request"]
+    assert callback(state, headers, error="access_denied")["error"] == ["access_denied"]
+    assert not provider_requests
+
+    state, headers = start()
+    unlinked = callback(state, headers, code="example-code")
+    assert unlinked["error"] == ["account_not_linked"] and "code" not in unlinked
+
+    pending = create_pending_token(OAuthIdentity("feishu", "Feishu", "ou_native_example", "example", None, None))
+    linked = client.post("/auth/oauth/finalize", json={
+        "pendingToken": pending, "email": "user1@example.test", "password": "secret",
+    })
+    assert linked.status_code == 200
+
+    state, headers = start()
+    result = callback(state, headers, code="example-code")
+    token_request = {
+        "grant_type": "authorization_code", "code": result["code"][0],
+        "client_id": "agents-anywhere-mobile", "redirect_uri": "agents-anywhere://oauth/callback",
+        "code_verifier": verifier,
+    }
+    assert client.post("/oauth/token", data={**token_request, "code_verifier": "wrong"}).status_code == 400
+    token = client.post("/oauth/token", data=token_request)
+    assert token.status_code == 200
+    assert client.get("/auth/me", headers=bearer(token.json()["access_token"])).json()["email"] == "user1@example.test"
+    assert client.post("/oauth/token", data=token_request).status_code == 400
+
+
 def test_admin_oauth_client_configuration_is_closed(tmp_path):
     client = make_client(tmp_path)
     token = admin_token(client)

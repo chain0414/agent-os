@@ -71,16 +71,8 @@ struct AuthBrandLockup: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 18) {
-            AAWordmark(fontSize: 42)
-                .foregroundStyle(AppTheme.primaryText(colorScheme))
-
-            Text(String(localized: "Connect this device to your workspace."))
-                .font(.body)
-                .foregroundStyle(AppTheme.secondaryText(colorScheme))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        AAWordmark(fontSize: 42)
+            .foregroundStyle(AppTheme.primaryText(colorScheme))
     }
 }
 

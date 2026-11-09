@@ -21,7 +21,7 @@ private struct AnnouncementGate: ViewModifier {
 
     private var target: URL? {
         guard route != .loading else { return nil }
-        return server ?? URL(string: ManualLoginView.cloudServer)?.normalizedServerURL()
+        return server ?? AppState.defaultServerURL
     }
 
     private var checkKey: String {
