@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import random
 import secrets
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -37,6 +40,22 @@ ACTIVE_SESSION_SYNC_SKIP_STATUSES: frozenset[RuntimeStatus] = frozenset(
     {"waiting", "pending", "running", "waiting_approval", "stopping"}
 )
 VALIDATION_ERROR_LOG_LIMIT = 5
+# Connectors restarted together spread their first scan across this window.
+INITIAL_SYNC_JITTER_SECONDS = 5.0
+# Scan intervals vary by this fraction so that scans do not stay aligned.
+SYNC_INTERVAL_JITTER = 0.2
+# An unchanged inventory is not reported again until this much time has passed,
+# which bounds how long the Server can disagree with the runtime.
+INVENTORY_RECONCILE_SECONDS = 600.0
+# Forced timeline syncs per scan after a reconnect. The rest wait for later scans;
+# sessions with local changes still sync on their normal path.
+RECOVERY_SESSIONS_PER_SCAN = 100
+
+
+@dataclass(frozen=True)
+class _InventoryReport:
+    fingerprint: str
+    reconcile_at: float
 
 
 class RuntimeSyncRunner:
@@ -62,6 +81,9 @@ class RuntimeSyncRunner:
         self._recovery_generation = 0
         self._recovered: dict[str, int] = {}
         self._recovered_sessions: set[tuple[str, str]] = set()
+        self._recovery_attempted: set[tuple[str, str]] = set()
+        self._inventory_reports: dict[str, _InventoryReport] = {}
+        self._pending_inventory_meta: dict[str, set[str]] = {}
         self._last_preferences: dict[str, Any] | None = None
         self._last_active_session_updates: dict[
             str, tuple[SessionMeta, SessionState]
@@ -75,14 +97,21 @@ class RuntimeSyncRunner:
             "existing session sync loop started interval_seconds={}",
             self.config.sync_interval_seconds,
         )
+        interval = self.config.sync_interval_seconds
+        await asyncio.sleep(random.uniform(0, min(INITIAL_SYNC_JITTER_SECONDS, interval)))
         while True:
             await self.sync_existing_once()
             await self.push_preferences_if_changed()
-            await asyncio.sleep(self.config.sync_interval_seconds)
+            await asyncio.sleep(
+                interval
+                * random.uniform(1 - SYNC_INTERVAL_JITTER, 1 + SYNC_INTERVAL_JITTER)
+            )
 
     async def reconnect_event_runtimes(self) -> None:
         self._recovery_generation += 1
         self._recovered_sessions.clear()
+        self._recovery_attempted.clear()
+        self._inventory_reports.clear()
         self._last_active_session_updates.clear()
         for runtime_id in self.supervisor.runtimes:
             try:
@@ -110,35 +139,26 @@ class RuntimeSyncRunner:
                 inventory_scan_token: str | None = None
                 runtime_type = entry.runtime_type
                 scoped_runtime_id = entry.runtime_id
-                if runtime.supports_complete_session_inventory():
-                    inventory_scan_token = secrets.token_hex(16)
-                    await self._ingest_scanner_notifications(
-                        [
-                            _inventory_begin_notification(
-                                runtime_type,
-                                scoped_runtime_id,
-                                inventory_scan_token,
-                            )
-                        ]
+                source_in_inventory = runtime.supports_complete_session_inventory()
+                pending_meta: set[str] = set()
+                if source_in_inventory:
+                    pending_meta = self._pending_inventory_meta.setdefault(runtime_id, set())
+                    sessions = await self._read_unchanged_inventory(
+                        runtime, runtime_id, pending_meta
                     )
-                    try:
-                        sessions = await runtime.list_complete_session_inventory(
-                            page_size=100,
-                            force=False,
+                    if sessions is None:
+                        # A lost completion response can leave the Server with a
+                        # different inventory even if local state later reverts.
+                        self._inventory_reports.pop(runtime_id, None)
+                        inventory_scan_token = secrets.token_hex(16)
+                        sessions = await self._begin_inventory(
+                            runtime,
+                            runtime_type,
+                            scoped_runtime_id,
+                            inventory_scan_token,
                         )
-                    except Exception:
-                        await self._ingest_scanner_notifications(
-                            [
-                                _inventory_complete_notification(
-                                    runtime_type,
-                                    scoped_runtime_id,
-                                    inventory_scan_token,
-                                    (),
-                                    complete=False,
-                                )
-                            ]
-                        )
-                        raise
+                    pending_meta.intersection_update(session.session_id for session in sessions)
+                    _remember_inventory_meta(pending_meta, sessions)
                 else:
                     sessions = await runtime.list_sessions(limit=100, force=False)
                 timeline_sync_count = sum(
@@ -150,23 +170,36 @@ class RuntimeSyncRunner:
                     len(sessions),
                     timeline_sync_count,
                 )
+                recovery_targets, recovery_deferred = (
+                    self._recovery_targets(runtime_id, sessions) if recover else (set(), False)
+                )
                 for session in sessions:
                     try:
                         recovery_key = (runtime_id, session.session_id)
-                        recover_session = recover and recovery_key not in self._recovered_sessions
+                        recover_session = recovery_key in recovery_targets
                         if recover_session:
+                            if recovery_generation == self._recovery_generation:
+                                self._recovery_attempted.add(recovery_key)
                             session = replace(session, metadata={
                                 **dict(session.metadata),
                                 "sync": {"changed": True, "requires_timeline_sync": True},
                             })
+                        elif session.session_id in pending_meta and session_sync_changed(session) is False:
+                            session = replace(session, metadata={
+                                **session.metadata,
+                                "sync": {**session.metadata["sync"], "changed": True},
+                            })
                         completed = await self.sync_existing_session(
-                            runtime, session, source_in_inventory=inventory_scan_token is not None,
+                            runtime, session, source_in_inventory=source_in_inventory,
                             recovering=recover_session,
                         )
                         if completed is False:
                             failed = True
-                        elif recover_session and recovery_generation == self._recovery_generation:
-                            self._recovered_sessions.add(recovery_key)
+                        else:
+                            pending_meta.discard(session.session_id)
+                            if recover_session and recovery_generation == self._recovery_generation:
+                                self._recovered_sessions.add(recovery_key)
+                                self._recovery_attempted.discard(recovery_key)
                     except ConnectorNetworkError as exc:
                         logger.warning(
                             "existing session sync network failure runtime={} session_id={} external_session_id={} error={}",
@@ -209,7 +242,16 @@ class RuntimeSyncRunner:
                             )
                         ]
                     )
-                if not failed:
+                    if recovery_generation == self._recovery_generation:
+                        self._inventory_reports[runtime_id] = _InventoryReport(
+                            fingerprint=_inventory_fingerprint(sessions),
+                            reconcile_at=time.monotonic()
+                            + INVENTORY_RECONCILE_SECONDS
+                            * random.uniform(
+                                1 - SYNC_INTERVAL_JITTER, 1 + SYNC_INTERVAL_JITTER
+                            ),
+                        )
+                if not failed and not recovery_deferred and recovery_generation == self._recovery_generation:
                     self._recovered[runtime_id] = recovery_generation
                 logger.info(
                     "existing session sync runtime completed runtime={} sessions={} elapsed_ms={:.1f}",
@@ -239,6 +281,69 @@ class RuntimeSyncRunner:
                 await self.flush_sync_state()
             except Exception:  # noqa: BLE001
                 logger.exception("history scanner sync state flush failed")
+
+    def _recovery_targets(
+        self, runtime_id: str, sessions: tuple[SessionMeta, ...]
+    ) -> tuple[set[tuple[str, str]], bool]:
+        remaining = [
+            key for session in sessions
+            if (key := (runtime_id, session.session_id)) not in self._recovered_sessions
+        ]
+        unattempted = [key for key in remaining if key not in self._recovery_attempted]
+        if not unattempted:
+            # Retry failed sessions after giving every other session a turn.
+            self._recovery_attempted.difference_update(remaining)
+            unattempted = remaining
+        selected = set(unattempted[:RECOVERY_SESSIONS_PER_SCAN])
+        return selected, len(selected) < len(remaining)
+
+    async def _read_unchanged_inventory(
+        self, runtime: AgentRuntime, runtime_id: str, pending_meta: set[str]
+    ) -> tuple[SessionMeta, ...] | None:
+        """Return the inventory when the Server already has it, otherwise ``None``.
+
+        A scan has to begin before the runtime is listed, so that writes landing
+        during the listing win over it. A changed inventory is therefore listed
+        again under a new scan rather than reported from this read.
+        """
+        report = self._inventory_reports.get(runtime_id)
+        if report is None or time.monotonic() >= report.reconcile_at:
+            return None
+        sessions = await runtime.list_complete_session_inventory(
+            page_size=100,
+            force=False,
+        )
+        _remember_inventory_meta(pending_meta, sessions)
+        return sessions if _inventory_fingerprint(sessions) == report.fingerprint else None
+
+    async def _begin_inventory(
+        self,
+        runtime: AgentRuntime,
+        runtime_type: str,
+        runtime_id: str,
+        scan_token: str,
+    ) -> tuple[SessionMeta, ...]:
+        await self._ingest_scanner_notifications(
+            [_inventory_begin_notification(runtime_type, runtime_id, scan_token)]
+        )
+        try:
+            return await runtime.list_complete_session_inventory(
+                page_size=100,
+                force=False,
+            )
+        except Exception:
+            await self._ingest_scanner_notifications(
+                [
+                    _inventory_complete_notification(
+                        runtime_type,
+                        runtime_id,
+                        scan_token,
+                        (),
+                        complete=False,
+                    )
+                ]
+            )
+            raise
 
     async def sync_existing_session(
         self,
@@ -486,6 +591,15 @@ def session_sync_changed(session: SessionMeta) -> bool | None:
     return changed if isinstance(changed, bool) else None
 
 
+def _remember_inventory_meta(pending: set[str], sessions: tuple[SessionMeta, ...]) -> None:
+    # Codex records metadata-only discoveries locally during listing. Keep them
+    # pending until acknowledged so a second list or failed upload cannot lose them.
+    pending.update(
+        session.session_id for session in sessions
+        if session_sync_changed(session) is True and not session_requires_timeline_sync(session)
+    )
+
+
 def _session_meta_notification(session: SessionMeta) -> dict[str, Any]:
     return {
         "method": "session.meta.upsert",
@@ -561,6 +675,21 @@ def _inventory_complete_notification(
             ],
         },
     }
+
+
+def _inventory_fingerprint(sessions: tuple[SessionMeta, ...]) -> str:
+    """Identify what a scan would report, ignoring when it was observed."""
+    entries = []
+    for session in sessions:
+        source_state = _inventory_source_state(session)
+        if isinstance(source_state, dict):
+            source_state = {
+                key: value for key, value in source_state.items() if key != "observedAt"
+            }
+        entries.append([session.session_id, session.external_session_id, source_state])
+    entries.sort(key=lambda entry: entry[0])
+    encoded = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _inventory_source_state(session: SessionMeta) -> str | dict[str, Any]:
