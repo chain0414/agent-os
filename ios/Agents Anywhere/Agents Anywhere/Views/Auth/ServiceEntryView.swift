@@ -122,26 +122,16 @@ struct ServiceEntryView: View {
             }
             .accessibilityIdentifier("auth.sign-in")
 
-            Button {
+            AppGlassButton(
+                String(localized: "Sign in with Feishu"),
+                isLoading: loginMethod == .feishu,
+                disabled: loginMethod != nil,
+                maxWidth: nil,
+            ) {
                 startLogin(.feishu)
-            } label: {
-                Text("Sign in with Feishu")
-                    .opacity(loginMethod == .feishu ? 0 : 1)
-                    .overlay {
-                        if loginMethod == .feishu {
-                            ProgressView()
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(loginMethod != nil)
-            .accessibilityLabel(Text("Sign in with Feishu"))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
             .accessibilityIdentifier("auth.feishu")
         }
     }
