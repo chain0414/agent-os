@@ -9,14 +9,22 @@ struct ServiceEntryView: View {
         case email, password
     }
 
+    private enum LoginSheet: Identifiable {
+        case methods, privacyPolicy
+
+        var id: Self { self }
+    }
+
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var oauthLogin = OAuthLoginCoordinator()
-    @State private var showsPrivacyPolicy = false
+    @State private var loginSheet: LoginSheet?
+    @State private var startsFeishuAfterDismiss = false
     @State private var email = ""
     @State private var password = ""
     @State private var loginMethod: LoginMethod?
     @FocusState private var focusedField: Field?
+    @ScaledMetric(relativeTo: .body) private var methodsSheetHeight: CGFloat = 188
 
     var body: some View {
         ScrollView {
@@ -45,15 +53,20 @@ struct ServiceEntryView: View {
         .background(AppTheme.appBackground(colorScheme).ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
             if focusedField == nil {
-                Button("privacyPolicy.title") { showsPrivacyPolicy = true }
+                Button("privacyPolicy.title") { loginSheet = .privacyPolicy }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(minHeight: 44)
                     .buttonStyle(.plain)
             }
         }
-        .sheet(isPresented: $showsPrivacyPolicy) {
-            PrivacyPolicySheet()
+        .sheet(item: $loginSheet, onDismiss: startPendingFeishuLogin) { sheet in
+            switch sheet {
+            case .methods:
+                loginMethodsSheet
+            case .privacyPolicy:
+                PrivacyPolicySheet()
+            }
         }
     }
 
@@ -122,21 +135,84 @@ struct ServiceEntryView: View {
             }
             .accessibilityIdentifier("auth.sign-in")
 
-            AppGlassButton(
-                String(localized: "Sign in with Feishu"),
-                isLoading: loginMethod == .feishu,
-                disabled: loginMethod != nil,
-            ) {
-                startLogin(.feishu)
+            Button {
+                focusedField = nil
+                loginSheet = .methods
+            } label: {
+                Text("Other Sign-In Options")
+                    .opacity(loginMethod == .feishu ? 0 : 1)
+                    .overlay {
+                        if loginMethod == .feishu {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Color(uiColor: .link))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("auth.feishu")
+            .buttonStyle(.plain)
+            .disabled(loginMethod != nil || startsFeishuAfterDismiss)
+            .accessibilityLabel(Text("Other Sign-In Options"))
+            .accessibilityIdentifier("auth.other-methods")
         }
     }
 
+    private var loginMethodsSheet: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Text("Other Sign-In Options")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+
+                Button {
+                    startsFeishuAfterDismiss = true
+                    loginSheet = nil
+                } label: {
+                    HStack {
+                        Text("Sign in with Feishu")
+                        Spacer(minLength: 12)
+                        Image(systemName: "chevron.forward")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: 48)
+                    .background(Color(uiColor: .tertiarySystemFill), in: .rect(cornerRadius: 12))
+                    .contentShape(.rect(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("auth.feishu")
+
+                Button("返回") { loginSheet = nil }
+                    .font(.subheadline)
+                    .foregroundStyle(Color(uiColor: .link))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 26)
+        }
+        .presentationDetents([.height(methodsSheetHeight)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func startPendingFeishuLogin() {
+        guard startsFeishuAfterDismiss else { return }
+        startsFeishuAfterDismiss = false
+        startLogin(.feishu)
+    }
+
     private var canSubmitPassword: Bool {
-        loginMethod == nil && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+        loginMethod == nil && !startsFeishuAfterDismiss &&
+            !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
     }
 
     private func startLogin(_ method: LoginMethod) {
