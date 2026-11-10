@@ -11,6 +11,16 @@
       }
     }
   },
+  "Other Sign-In Options": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "其他登录方式"
+        }
+      }
+    }
+  },
   "Sign in with Feishu": {
     "localizations": {
       "zh-Hans": {
