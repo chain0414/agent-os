@@ -20,7 +20,7 @@
 
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
-- 首页可用邮箱密码或飞书登录 `os.begrow.ai` 并进入工作空间，邮箱表单提供高对比度输入框和常驻标签，可用键盘从邮箱切换到密码，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)、[#4](https://github.com/chain0414/agent-os/pull/4)）
+- 首页可用邮箱密码或飞书登录 `os.begrow.ai` 并进入工作空间，邮箱表单有清晰的字段标签，可用键盘从邮箱切换到密码，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)、[#4](https://github.com/chain0414/agent-os/pull/4)）
 
 - 修复发送新会话时，切换到会话页会中断首次发送的问题。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
