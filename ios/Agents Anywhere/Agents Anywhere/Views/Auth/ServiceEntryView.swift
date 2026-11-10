@@ -126,7 +126,6 @@ struct ServiceEntryView: View {
                 String(localized: "Sign in with Feishu"),
                 isLoading: loginMethod == .feishu,
                 disabled: loginMethod != nil,
-                maxWidth: nil,
             ) {
                 startLogin(.feishu)
             }
