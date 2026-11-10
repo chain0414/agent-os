@@ -111,11 +111,12 @@ struct ServiceEntryView: View {
     }
 
     private var loginActions: some View {
-        VStack(spacing: 8) {
-            AuthPrimaryButton(
-                title: String(localized: "Log In"),
+        VStack(spacing: 20) {
+            AppGlassButton(
+                String(localized: "Log In"),
+                style: canSubmitPassword || loginMethod == .password ? .prominent : .regular,
                 isLoading: loginMethod == .password,
-                disabled: loginMethod != nil,
+                disabled: !canSubmitPassword,
             ) {
                 startLogin(.password)
             }
@@ -132,7 +133,7 @@ struct ServiceEntryView: View {
                                 .accessibilityHidden(true)
                         }
                     }
-                    .font(.subheadline.weight(.medium))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 44)
@@ -145,17 +146,12 @@ struct ServiceEntryView: View {
         }
     }
 
-    private var missingField: Field? {
-        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .email }
-        return password.isEmpty ? .password : nil
+    private var canSubmitPassword: Bool {
+        loginMethod == nil && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
     }
 
     private func startLogin(_ method: LoginMethod) {
-        guard loginMethod == nil else { return }
-        if method == .password, let missingField {
-            focusedField = missingField
-            return
-        }
+        guard loginMethod == nil, method != .password || canSubmitPassword else { return }
         focusedField = nil
         loginMethod = method
         appState.authError = nil
