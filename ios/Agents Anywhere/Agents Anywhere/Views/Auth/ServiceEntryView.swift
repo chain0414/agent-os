@@ -115,7 +115,6 @@ struct ServiceEntryView: View {
             VStack(spacing: 12) {
                 AppGlassButton(
                     String(localized: "Log In"),
-                    style: canSubmitPassword || loginMethod == .password ? .prominent : .regular,
                     isLoading: loginMethod == .password,
                     disabled: !canSubmitPassword,
                 ) {
@@ -125,6 +124,7 @@ struct ServiceEntryView: View {
 
                 AppGlassButton(
                     String(localized: "Sign in with Feishu"),
+                    style: .prominent,
                     isLoading: loginMethod == .feishu,
                     disabled: loginMethod != nil,
                 ) {
