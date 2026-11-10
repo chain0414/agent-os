@@ -111,36 +111,51 @@ struct ServiceEntryView: View {
     }
 
     private var loginActions: some View {
-        GlassEffectContainer(spacing: 12) {
-            VStack(spacing: 12) {
-                AppGlassButton(
-                    String(localized: "Log In"),
-                    isLoading: loginMethod == .password,
-                    disabled: !canSubmitPassword,
-                ) {
-                    startLogin(.password)
-                }
-                .accessibilityIdentifier("auth.sign-in")
-
-                AppGlassButton(
-                    String(localized: "Sign in with Feishu"),
-                    style: .prominent,
-                    isLoading: loginMethod == .feishu,
-                    disabled: loginMethod != nil,
-                ) {
-                    startLogin(.feishu)
-                }
-                .accessibilityIdentifier("auth.feishu")
+        VStack(spacing: 8) {
+            AuthPrimaryButton(
+                title: String(localized: "Log In"),
+                isLoading: loginMethod == .password,
+                disabled: loginMethod != nil,
+            ) {
+                startLogin(.password)
             }
+            .accessibilityIdentifier("auth.sign-in")
+
+            Button {
+                startLogin(.feishu)
+            } label: {
+                Text("Sign in with Feishu")
+                    .opacity(loginMethod == .feishu ? 0 : 1)
+                    .overlay {
+                        if loginMethod == .feishu {
+                            ProgressView()
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(loginMethod != nil)
+            .accessibilityLabel(Text("Sign in with Feishu"))
+            .accessibilityIdentifier("auth.feishu")
         }
     }
 
-    private var canSubmitPassword: Bool {
-        loginMethod == nil && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+    private var missingField: Field? {
+        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .email }
+        return password.isEmpty ? .password : nil
     }
 
     private func startLogin(_ method: LoginMethod) {
-        guard loginMethod == nil, method != .password || canSubmitPassword else { return }
+        guard loginMethod == nil else { return }
+        if method == .password, let missingField {
+            focusedField = missingField
+            return
+        }
         focusedField = nil
         loginMethod = method
         appState.authError = nil
