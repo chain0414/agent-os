@@ -80,7 +80,9 @@ Semantic error and availability colors remain separate from the primary color.
   parent updates from constructing and discarding another chat model. Cached
   preparation still reads the repository without requesting history again.
   A sidebar gesture after loading starts does not restart the connection.
-  A cold opening fetches the latest 24 timeline records. A cached visit retains up to 100.
+  A cold opening fetches the latest 24 timeline records. If a full page contains
+  only tool or other non-message records, it expands once to the latest 100.
+  A cached visit retains up to 100 records.
   Older records are loaded explicitly in 100-record pages and accumulate during
   that visit. Reopening while following the bottom trims the window again; a
   compact/split layout replacement while reading preserves the loaded window and

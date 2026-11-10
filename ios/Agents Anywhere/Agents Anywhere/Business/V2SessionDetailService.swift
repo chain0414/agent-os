@@ -6,7 +6,14 @@ struct V2SessionDetailService {
     let realtimeAPI: any V2RealtimeAPIProtocol
 
     func loadPersisted(sessionId: V2SessionID) async throws -> V2SessionData {
-        let timeline = try await latestItems(sessionId: sessionId, limit: 24)
+        let openingLimit = 24
+        var timeline = try await latestItems(sessionId: sessionId, limit: openingLimit)
+        guard timeline.sessionId == sessionId else { throw HTTPError.invalidResponse }
+        // A dense tool tail can hide the most recent message beyond the small page.
+        if timeline.hasMore, timeline.items.count == openingLimit,
+           !timeline.items.contains(where: { $0.type == .message && $0.isVisibleInChat }) {
+            timeline = try await latestItems(sessionId: sessionId)
+        }
         // Read metadata after the timeline cursor so recovery can replay every
         // change the timeline missed without regressing to older metadata.
         let meta = try await sessionAPI.sessionMeta(sessionId: sessionId).session

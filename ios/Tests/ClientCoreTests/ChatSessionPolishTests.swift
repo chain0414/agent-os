@@ -60,6 +60,32 @@ import Testing
         #expect(http.count("timeline") == 1 && http.count("meta") == 1)
     }
 
+    @Test func openingFindsLatestMessageBehindAFullPageOfTools() async throws {
+        let http = TestHTTPTransport()
+        http.respond = { call in
+            guard call.path.hasSuffix("/timeline") else { return try http.defaultResponse(call) }
+            var timeline = try fixtureObject("timeline")
+            let tools = try (2...25).map { order in
+                var tool = try itemObject(id: "tool-\(order)", order: order)
+                tool["type"] = "tool"
+                tool["content"] = ["kind": "command", "command": "pwd"]
+                return tool
+            }
+            let expanded = call.query.contains(URLQueryItem(name: "limit", value: "100"))
+            timeline["items"] = expanded ? try [itemObject(id: "latest-message")] + tools : tools
+            timeline["hasMore"] = !expanded
+            return try JSONSerialization.data(withJSONObject: timeline)
+        }
+        let model = chat(http)
+        defer { model.repository.reset() }
+
+        await model.prepareOpening()
+
+        #expect(model.isOpeningReady && model.openingError == nil)
+        #expect(model.timeline.rows.first?.id == "latest-message")
+        #expect(http.count("timeline") == 2 && http.count("meta") == 1)
+    }
+
     @Test func openingNetworkFailureIsActionableWithoutAnEndlessLoadingPhase() async {
         let http = TestHTTPTransport()
         http.respond = { _ in throw URLError(.notConnectedToInternet) }
