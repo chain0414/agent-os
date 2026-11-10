@@ -8,12 +8,10 @@ import Testing
     @Test func rebuildingLayoutWhileReadingDoesNotTrimTheLoadedHistoryWindow() async throws {
         let http = TestHTTPTransport()
         http.respond = { call in
-            guard call.path.hasSuffix("snapshot") else { return try http.defaultResponse(call) }
-            var snapshot = try fixtureObject("snapshot")
-            var timeline = snapshot["timeline"] as! [String: Any]
+            guard call.path.hasSuffix("/timeline") else { return try http.defaultResponse(call) }
+            var timeline = try fixtureObject("timeline")
             timeline["items"] = try (1...300).map { try itemObject(id: "reply-\($0)", order: $0) }
-            snapshot["timeline"] = timeline
-            return try JSONSerialization.data(withJSONObject: snapshot)
+            return try JSONSerialization.data(withJSONObject: timeline)
         }
         let repo = repository(transport: http)
         defer { repo.reset() }
@@ -45,13 +43,12 @@ import Testing
     @Test func openingKeepsTheLatestWindowWithoutFetchingAnEarlierUserMessage() async throws {
         let http = TestHTTPTransport()
         http.respond = { call in
-            if call.path.hasSuffix("snapshot") {
-                var snapshot = try fixtureObject("snapshot")
-                var timeline = snapshot["timeline"] as! [String: Any]
+            if call.path.hasSuffix("/timeline") {
+                var timeline = try fixtureObject("timeline")
                 var tool = try itemObject(id: "tool", order: 100)
                 tool["type"] = "tool"; tool["content"] = ["kind": "command", "command": "pwd"]
-                timeline["items"] = [tool]; timeline["hasMore"] = true; snapshot["timeline"] = timeline
-                return try JSONSerialization.data(withJSONObject: snapshot)
+                timeline["items"] = [tool]; timeline["hasMore"] = true
+                return try JSONSerialization.data(withJSONObject: timeline)
             }
             return try http.defaultResponse(call)
         }
@@ -60,7 +57,7 @@ import Testing
         await model.prepareOpening()
         #expect(model.isOpeningReady && model.openingError == nil)
         #expect(model.timeline.rows.map(\.id) == ["tool"] && model.session.hasOlderItems)
-        #expect(http.count("snapshot") == 1 && http.count("timeline") == 0)
+        #expect(http.count("timeline") == 1 && http.count("meta") == 1)
     }
 
     @Test func openingNetworkFailureIsActionableWithoutAnEndlessLoadingPhase() async {
@@ -75,15 +72,13 @@ import Testing
     @Test func cachedLargeSessionWaitsForOpeningWithoutReloadingHistory() async throws {
         let http = TestHTTPTransport()
         http.respond = { call in
-            guard call.path.hasSuffix("snapshot") else { return try http.defaultResponse(call) }
-            var snapshot = try fixtureObject("snapshot")
-            var timeline = snapshot["timeline"] as! [String: Any]
+            guard call.path.hasSuffix("/timeline") else { return try http.defaultResponse(call) }
+            var timeline = try fixtureObject("timeline")
             timeline["items"] = try (1...600).map { index in
                 try itemObject(id: "reply-\(index)", order: index,
                     text: String(repeating: "Cached paragraph with `src/main.swift:42`.\n\n", count: 50))
             }
-            snapshot["timeline"] = timeline
-            return try JSONSerialization.data(withJSONObject: snapshot)
+            return try JSONSerialization.data(withJSONObject: timeline)
         }
         let repo = repository(transport: http)
         defer { repo.reset() }

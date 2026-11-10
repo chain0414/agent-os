@@ -128,9 +128,12 @@ def test_opening_a_session_records_a_view(tmp_path):
     connector_id, _, session_id, headers = create_connector_and_session(client)
     admin_id = _user_id(client, headers)
 
-    for _ in range(2):
-        response = client.get(f"/sessions/{session_id}/snapshot", headers=headers)
-        assert response.status_code == 200, response.text
+    response = client.get(f"/sessions/{session_id}/meta", headers=headers)
+    assert response.status_code == 200, response.text
+    assert len(_events(client, event_type=EVENT_SESSION_VIEWED)) == 1
+
+    response = client.get(f"/sessions/{session_id}/snapshot", headers=headers)
+    assert response.status_code == 200, response.text
 
     rows = _events(client, event_type=EVENT_SESSION_VIEWED)
     assert len(rows) == 1, "a repeat open inside the view window is the same read"

@@ -5,22 +5,74 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct SessionRepositoryTests {
+    @Test func coldOpenShowsPersistedMessagesWhileConnectorIsOffline() async throws {
+        let http = TestHTTPTransport()
+        http.respond = { call in
+            if call.path.hasSuffix("/meta") {
+                var meta = try fixtureObject("session")
+                var session = try #require(meta["session"] as? [String: Any])
+                session["connectorStatus"] = "offline"
+                meta["session"] = session
+                return try JSONSerialization.data(withJSONObject: meta)
+            }
+            guard call.path.hasSuffix("/timeline") else { throw URLError(.timedOut) }
+            return try http.defaultResponse(call)
+        }
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+
+        let opening = try await repo.open(sessionId: "session")
+
+        #expect(opening.items.last?.id == "item")
+        #expect(opening.session.connectorStatus == .offline)
+        #expect(!repo.session(id: "session").canSend)
+        #expect(http.calls.map(\.path) == ["/sessions/session/timeline", "/sessions/session/meta"])
+    }
+
+    @Test func openingAndCatchUpDoNotWaitForLiveNotices() async throws {
+        let http = TestHTTPTransport(), realtime = TestRealtimeAPI(), noticesGate = TestGate()
+        http.respond = { call in
+            if call.path.hasSuffix("/notices") { await noticesGate.wait() }
+            return try http.defaultResponse(call)
+        }
+        let arrival = try event("timeline.item_created", seq: 11,
+            payload: ["item": itemObject(id: "arrived-during-open", order: 2, seq: 11)])
+        realtime.onRecover = {
+            V2EventRecoveryResponse(events: [arrival], nextCursor: "seq:11", snapshotRequired: false, serverTime: "")
+        }
+        let repo = repository(transport: http, realtime: realtime)
+        defer { repo.reset(); noticesGate.release() }
+        let session = repo.session(id: "session")
+        let chat = SessionChatModel(session: session, repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        await chat.prepareOpening()
+        #expect(chat.isOpeningReady)
+        #expect(chat.timeline.rows.last?.id == "item")
+        #expect(http.count("/notices") == 0)
+        let observation = Task { await chat.timeline.run(sessionID: session.id, repository: repo) }
+        defer { observation.cancel() }
+        try await eventually { http.count("/notices") == 1 }
+        try await eventually { chat.timeline.rows.last?.id == "arrived-during-open" }
+        #expect(realtime.recoveries == ["seq:10"])
+        #expect(!session.runtime.isFresh)
+        #expect(!session.canSend)
+
+        noticesGate.release()
+        try await eventually { session.runtime.isFresh }
+        #expect(session.notices.notices.map(\.id) == ["notice"])
+    }
+
     @Test func openingStartsWithOnePageAndExplicitHistoryAccumulatesAgain() async throws {
         let http = TestHTTPTransport()
         http.respond = { call in
-            if call.path.hasSuffix("snapshot") {
+            if call.path.hasSuffix("/timeline") {
                 #expect(call.query.contains { $0.name == "limit" && $0.value == "100" })
-                var response = try fixtureObject("snapshot")
-                var timeline = response["timeline"] as! [String: Any]
-                timeline["items"] = try (201...300).map {
-                    try itemObject(id: "item-\($0)", order: $0)
+                if call.query.contains(URLQueryItem(name: "mode", value: "latest")) {
+                    var page = try fixtureObject("timeline")
+                    page["items"] = try (201...300).map { try itemObject(id: "item-\($0)", order: $0) }
+                    page["hasMore"] = true
+                    return try JSONSerialization.data(withJSONObject: page)
                 }
-                timeline["hasMore"] = true
-                response["timeline"] = timeline
-                return try JSONSerialization.data(withJSONObject: response)
-            }
-            if call.path.hasSuffix("timeline") {
-                #expect(call.query.contains { $0.name == "limit" && $0.value == "100" })
                 let before = try #require(call.query.first { $0.name == "beforeOrderSeq" }?.value.flatMap(Int.init))
                 let start = max(1, before - 100)
                 let items = try (start..<before).map { try itemObject(id: "item-\($0)", order: $0) }
@@ -76,10 +128,10 @@ import Testing
         let model = repo.session(id: "session")
         let first = Task { try await repo.load(sessionId: "session") }
         let second = Task { try await repo.load(sessionId: "session") }
-        try await eventually { http.count("snapshot") == 1 }
+        try await eventually { http.count("timeline") == 1 }
         gate.release()
         _ = try await first.value; _ = try await second.value
-        #expect(http.count("snapshot") == 1)
+        #expect(http.count("timeline") == 1)
         #expect(repo.session(id: "session") === model)
         #expect(model.timeline.count == 1)
         #expect(!model.runtime.isFresh)
@@ -124,7 +176,7 @@ import Testing
         #expect(model.draft == "Unsent")
         #expect(await model.sendDraft() == nil)
         _ = try await repo.load(sessionId: "session")
-        #expect(http.count("snapshot") == 1)
+        #expect(http.count("timeline") == 1)
         repo.updateConnectivity(V2NetworkStatus(availability: .online, isExpensive: true, isConstrained: true))
         try await eventually { model.connection == .connected }
         #expect(realtime.tickets == 2)
@@ -155,7 +207,7 @@ import Testing
         let repo = repository(transport: http)
         let model = repo.session(id: "session"); model.draft = "Private draft"
         let load = Task { try await repo.load(sessionId: "session") }
-        try await eventually { http.count("snapshot") == 1 }
+        try await eventually { http.count("timeline") == 1 }
         repo.reset(); gate.release()
         if case .success = await load.result { Issue.record("Old account request populated a reset cache") }
         #expect(repo.cachedSessionIDs.isEmpty)
@@ -207,16 +259,17 @@ import Testing
         try await eventually { repo.cached(sessionId: "session")?.cursor == "seq:11" }
         realtime.onRecover = { V2EventRecoveryResponse(events: [], nextCursor: "seq:4", snapshotRequired: true, serverTime: "") }
         http.respond = { call in
-            if call.path.hasSuffix("snapshot") {
-                var object = try fixtureObject("snapshot"); object["eventCursor"] = "seq:4"
-                return try JSONSerialization.data(withJSONObject: object)
+            if call.path.hasSuffix("/timeline") {
+                var page = try fixtureObject("timeline")
+                page["nextSeq"] = 4
+                return try JSONSerialization.data(withJSONObject: page)
             }
             return try http.defaultResponse(call)
         }
         realtime.yield(try event("session.refetch_required", seq: 12))
         try await eventually { repo.cached(sessionId: "session")?.cursor == "seq:4" }
         try await eventually { model.runtime.isFresh }
-        #expect(http.count("snapshot") == 2)
+        #expect(http.count("timeline") == 2)
     }
 
     @Test func pendingSendTimeoutKeepsDraftAndDoesNotReplayThenEchoConfirms() async throws {
@@ -240,7 +293,7 @@ import Testing
         try await eventually { pending.delivery == .confirmed }
         #expect(model.draft.isEmpty)
         #expect(model.pendingMessages.isEmpty)
-        #expect(http.count("snapshot") == 1)
+        #expect(http.count("timeline") == 1)
     }
 
     @Test func echoBeforeHTTPFailureWinsAndConcurrentDraftEditsSurvive() async throws {
@@ -320,12 +373,12 @@ import Testing
     @Test func historyRequestCannotOverwriteANewerTimelineReset() async throws {
         let http = TestHTTPTransport(); let realtime = TestRealtimeAPI(); let gate = TestGate()
         http.respond = { call in
-            if call.path.hasSuffix("snapshot") {
-                var value = try fixtureObject("snapshot")
-                var timeline = value["timeline"] as! [String: Any]; timeline["hasMore"] = true; value["timeline"] = timeline
-                return try JSONSerialization.data(withJSONObject: value)
+            if call.path.hasSuffix("/timeline") {
+                if call.query.contains(URLQueryItem(name: "mode", value: "history")) { await gate.wait() }
+                var page = try fixtureObject("timeline")
+                page["hasMore"] = true
+                return try JSONSerialization.data(withJSONObject: page)
             }
-            if call.path.hasSuffix("timeline") { await gate.wait() }
             return try http.defaultResponse(call)
         }
         let repo = repository(transport: http, realtime: realtime)
@@ -334,7 +387,7 @@ import Testing
         defer { task.cancel() }
         try await eventually { model.canSend }
         let history = Task { try await repo.loadOlder(sessionId: "session") }
-        try await eventually { http.count("timeline") == 1 }
+        try await eventually { http.count("timeline") == 2 }
         realtime.yield(try event("timeline.snapshot", seq: 11, payload: ["items": []]))
         try await eventually { model.timeline.isEmpty }
         gate.release()
@@ -353,7 +406,7 @@ import Testing
             Issue.record("RPC ok:false was ignored")
         } catch { #expect((error as? V2RuntimeError)?.code == "notice_not_found") }
         #expect(http.count("messages") == 1)
-        #expect(http.count("snapshot") == 0)
+        #expect(http.count("timeline") == 0)
     }
 
     @Test func confirmedTakeoverSurvivesAFailedFollowupReadWithoutReplaying() async throws {

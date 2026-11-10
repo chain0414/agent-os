@@ -11,7 +11,9 @@ import Testing
         let http = TestHTTPTransport()
         http.respond = { call in
             guard call.path.hasSuffix("timeline") else { return try http.defaultResponse(call) }
-            #expect(call.query.contains(URLQueryItem(name: "mode", value: "changes")))
+            guard call.query.contains(URLQueryItem(name: "mode", value: "changes")) else {
+                return try http.defaultResponse(call)
+            }
             #expect(call.query.contains(URLQueryItem(name: "limit", value: "500")))
             let after = call.query.first { $0.name == "afterSeq" }?.value
             var page = try fixtureObject("timeline")
@@ -33,7 +35,7 @@ import Testing
         #expect(result.items[0]["content"]?["text"] == .string("Final"))
         #expect(result.source == "remote" && result.nextSeq == 30 && !result.hasMore)
         #expect(repo.cached(sessionId: "session")?.items.map(\.id) == cached.items.map(\.id))
-        #expect(http.count("timeline") == 2)
+        #expect(http.count("timeline") == 3)
         let json = try JSONDecoder().decode(JSONValue.self, from: result.encoded())
         #expect(json["items"]?.arrayValue?.count == 2)
     }

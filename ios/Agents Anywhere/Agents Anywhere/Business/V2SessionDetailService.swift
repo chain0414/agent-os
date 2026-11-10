@@ -5,9 +5,13 @@ struct V2SessionDetailService {
     let runtimeAPI: any V2RuntimeAPIProtocol
     let realtimeAPI: any V2RealtimeAPIProtocol
 
-    func load(sessionId: V2SessionID, itemLimit: Int = 100) async throws -> V2SessionSnapshot {
-        try validatePageSize(itemLimit)
-        return try await sessionAPI.snapshot(sessionId: sessionId, limit: itemLimit)
+    func loadPersisted(sessionId: V2SessionID) async throws -> V2SessionData {
+        let timeline = try await latestItems(sessionId: sessionId)
+        // Read metadata after the timeline cursor so recovery can replay every
+        // change the timeline missed without regressing to older metadata.
+        let meta = try await sessionAPI.sessionMeta(sessionId: sessionId).session
+        guard timeline.sessionId == sessionId, meta.id == sessionId else { throw HTTPError.invalidResponse }
+        return V2SessionData(session: meta, timeline: timeline)
     }
 
     func loadOlderItems(

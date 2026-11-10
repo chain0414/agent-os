@@ -433,10 +433,9 @@ final class V2SessionRepository {
                 if entry.readVersion == version { entry.loadTask = nil }
                 evict()
             }
-            let snapshot = try await detail.load(sessionId: entry.id)
+            let data = try await detail.loadPersisted(sessionId: entry.id)
             try requireCurrent(entry, version: version)
-            guard snapshot.session.id == entry.id else { throw CacheError.invalidated }
-            entry.projection = V2SessionProjection(snapshot: snapshot, maximumItems: policy.maximumTimelineItems)
+            entry.projection = V2SessionProjection(data: data, maximumItems: policy.maximumTimelineItems)
             invalidateCatalogs(entry)
             entry.error = nil
             emit(entry)
@@ -553,6 +552,8 @@ final class V2SessionRepository {
             }
             entry.projection?.markStale()
             invalidateCatalogs(entry)
+            // Publish recovered history while the Connector refresh is still pending.
+            emit(entry)
             if entry.projection?.data.session.connectorStatus == .online {
                 // Frames received before this read must not overwrite its newer live projection.
                 let barrier = now()
@@ -563,6 +564,7 @@ final class V2SessionRepository {
                     entry.projection?.applyLive(live)
                     entry.projectionBarrier = barrier
                     entry.error = nil
+                    emit(entry, persist: false)
                 } catch {
                     try requireCurrent(entry)
                     guard entry.connectionID == version else { throw CacheError.invalidated }
@@ -570,7 +572,6 @@ final class V2SessionRepository {
                     throw error
                 }
             }
-            emit(entry)
         }
         entry.recoveryTask = task
         return try await task.value
