@@ -12,16 +12,16 @@ import { PrivacyNotice } from "./privacy-notice"
 import { useTranslations } from "next-intl"
 
 export function LoginScreen() {
-  const { navigate, login, loading, error, oauthEnabled, oauthProviderLabel, registrationOpen, passwordResetEnabled, startOAuth } = useAuth()
+  const { navigate, login, loading, error, devkit, oauthEnabled, oauthProviderLabel, registrationOpen, passwordResetEnabled, startOAuth } = useAuth()
   const t = useTranslations("auth")
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const emailInvalid = Boolean(email && !isValidEmail(email))
 
-  const submit = async () => {
+  const submit = async (useDevKit = false) => {
     if (loading || !isValidEmail(email) || !password) return
-    await login({ email, password }).catch(() => undefined)
+    await login({ email, password }, useDevKit).catch(() => undefined)
   }
 
   return (
@@ -92,6 +92,18 @@ export function LoginScreen() {
           >
             {loading ? t("login.signingIn") : t("login.submitWithEnter")}
           </Button>
+
+          {devkit ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              disabled={loading || !isValidEmail(email) || !password}
+              onClick={() => void submit(true)}
+            >
+              {t("devkit.signIn")}
+            </Button>
+          ) : null}
 
           {error ? <p className="text-center text-sm text-destructive">{error}</p> : null}
 

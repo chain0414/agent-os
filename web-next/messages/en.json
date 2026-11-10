@@ -1279,6 +1279,24 @@
     }
   },
   "auth": {
+    "devkit": {
+      "signUp": "Create a DevKit account",
+      "backToLink": "Back to linking",
+      "signUpDescription": "Use at least 10 characters, including uppercase and lowercase letters and a number.",
+      "signUpFailed": "Could not request sign-up. Check your email and password.",
+      "checkEmail": "Check your inbox for the verification email. After verifying, return to account settings to link your account.",
+      "verifying": "Verifying your DevKit email…",
+      "verified": "Email verified. Return to account settings to link your DevKit account.",
+      "verificationFailed": "Could not verify the email. Request sign-up again from account settings.",
+      "returnToAccount": "Back to account settings",
+      "account": "DevKit account",
+      "link": "Link account",
+      "signIn": "Sign in with DevKit",
+      "linkDescription": "Sign in to DevKit to link it to your current Agent OS account.",
+      "linked": "DevKit account linked",
+      "linkFailed": "Could not link the account. Check your DevKit credentials and account links.",
+      "signInFailed": "Could not sign in with DevKit. Check your credentials and make sure the account is linked."
+    },
     "actions": {
       "hidePassword": "Hide password",
       "showPassword": "Show password"

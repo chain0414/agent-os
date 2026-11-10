@@ -6,6 +6,8 @@
 
 ### 升级须知
 
+- 自托管实例可配置 DevKit Project Auth。升级 Server 需应用 `v2_45`；Web 和 iOS 2.5 在启用后显示 DevKit 登录。
+
 - iOS 直接飞书登录需配套 Server 2.4，已有飞书绑定可继续使用，无新增数据库迁移。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 附件接口新增可选缩略图入口，各端源码版本同步为 2.3.0；源码部署需重新同步 Server 依赖以安装 Pillow，DSH 同步改进需配套更新 Connector 与 DSH Bridge，无新增数据库迁移。（[#492](https://github.com/anywhere-labs/Agents-Anywhere/pull/492)、[#511](https://github.com/anywhere-labs/Agents-Anywhere/pull/511)）
@@ -13,6 +15,8 @@
 - iOS 语音输入需配套 Server 2.2 并配置百炼 API Key；音频联网发送至阿里云转写，其他会话功能保持兼容。（[8bc663b3](https://github.com/chain0414/agent-os/commit/8bc663b3)）
 
 ### Web 与 Desktop 界面
+
+- Web 账户设置可以注册并验证 DevKit 邮箱，随后将其绑定到当前 Agent OS 账号。
 
 - 自托管实例可启用飞书登录，首次绑定时用现有邮箱和密码确认账号，之后可以直接用已绑定的飞书身份登录。（[#1](https://github.com/chain0414/agent-os/pull/1)）
 

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServiceEntryView: View {
     private enum LoginMethod {
-        case password, feishu
+        case password, feishu, devkit
     }
 
     private enum Field {
@@ -22,6 +22,7 @@ struct ServiceEntryView: View {
     @State private var startsFeishuAfterDismiss = false
     @State private var email = ""
     @State private var password = ""
+    @State private var devkit: DevKitAuthConfig?
     @State private var loginMethod: LoginMethod?
     @FocusState private var focusedField: Field?
     @ScaledMetric(relativeTo: .body) private var methodsSheetHeight: CGFloat = 188
@@ -47,6 +48,10 @@ struct ServiceEntryView: View {
                 }
                 .frame(maxWidth: 340)
             }
+        }
+        .task {
+            let client = APIClient(serverURL: AppState.defaultServerURL)
+            devkit = try? await client.authConfig().devkit
         }
         .defaultScrollAnchor(.center, for: .alignment)
         .scrollDismissesKeyboard(.interactively)
@@ -135,6 +140,18 @@ struct ServiceEntryView: View {
             }
             .accessibilityIdentifier("auth.sign-in")
 
+            if devkit != nil {
+                AppGlassButton(
+                    String(localized: "Sign in with DevKit"),
+                    style: .regular,
+                    isLoading: loginMethod == .devkit,
+                    disabled: !canSubmitPassword,
+                ) {
+                    startLogin(.devkit)
+                }
+                .accessibilityIdentifier("auth.devkit")
+            }
+
             Button {
                 focusedField = nil
                 loginSheet = .methods
@@ -216,7 +233,7 @@ struct ServiceEntryView: View {
     }
 
     private func startLogin(_ method: LoginMethod) {
-        guard loginMethod == nil, method != .password || canSubmitPassword else { return }
+        guard loginMethod == nil, method == .feishu || canSubmitPassword else { return }
         focusedField = nil
         loginMethod = method
         appState.authError = nil
@@ -225,6 +242,9 @@ struct ServiceEntryView: View {
             switch method {
             case .password:
                 await appState.login(serverURL: AppState.defaultServerURL, email: email, password: password)
+            case .devkit:
+                guard let devkit else { return }
+                await appState.login(serverURL: AppState.defaultServerURL, email: email, password: password, devkit: devkit)
             case .feishu:
                 do {
                     let token = try await oauthLogin.authenticateWithFeishu(serverURL: AppState.defaultServerURL)

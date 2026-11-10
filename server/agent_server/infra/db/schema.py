@@ -218,6 +218,17 @@ email_verification_limits = Table(
 )
 
 
+devkit_auth_bindings = Table(
+    "devkit_auth_bindings",
+    metadata,
+    Column("scope", Text, nullable=False),
+    Column("subject", Text, nullable=False),
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    PrimaryKeyConstraint("scope", "subject"),
+    UniqueConstraint("scope", "user_id"),
+)
+
+
 oauth_accounts = Table(
     "oauth_accounts",
     metadata,

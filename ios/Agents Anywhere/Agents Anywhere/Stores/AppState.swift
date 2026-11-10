@@ -174,13 +174,18 @@ final class AppState {
         }
     }
 
-    func login(serverURL: URL, email: String, password: String) async {
+    func login(serverURL: URL, email: String, password: String, devkit: DevKitAuthConfig? = nil) async {
         authError = nil
         isWorking = true
         defer { isWorking = false }
         do {
             let client = APIClient(serverURL: serverURL)
-            let auth = try await client.login(email: email, password: password)
+            let auth: AuthResponse
+            if let devkit {
+                auth = try await client.loginWithDevKit(config: devkit, email: email, password: password)
+            } else {
+                auth = try await client.login(email: email, password: password)
+            }
             let profile = try await client.me(token: auth.accessToken)
             try Task.checkCancellation()
             try saveSession(serverURL: serverURL, token: auth.accessToken)

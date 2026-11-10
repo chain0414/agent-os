@@ -5,7 +5,13 @@ enum UserRole: String, Codable, Hashable {
     case member
 }
 
+struct DevKitAuthConfig: Decodable {
+    let apiUrl: String
+    let publishableKey: String
+}
+
 struct AuthConfig: Decodable {
+    let devkit: DevKitAuthConfig?
     let needsBootstrap: Bool
     let emailVerificationRequired: Bool
     let registrationOpen: Bool

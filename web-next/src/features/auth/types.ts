@@ -1,6 +1,12 @@
 export type UserRole = "admin" | "member";
 
+export type DevKitAuthConfig = {
+  apiUrl: string;
+  publishableKey: string;
+};
+
 export type AuthConfig = {
+  devkit?: DevKitAuthConfig | null;
   needsBootstrap: boolean;
   emailVerificationRequired: boolean;
   registrationOpen: boolean;

@@ -28,7 +28,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 12
-        versionName = "2.4.0"
+        versionName = "2.5.0"
         buildConfigField("String", "OFFICIAL_SERVER_URL", officialServerUrl.asBuildConfigString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

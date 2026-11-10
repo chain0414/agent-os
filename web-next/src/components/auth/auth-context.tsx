@@ -8,7 +8,7 @@ import {
   loadStoredSession,
   saveStoredSession,
 } from "@/features/auth/session"
-import type { AuthMe, OAuthFinalizePayload, StoredSession } from "@/features/auth/types"
+import type { AuthMe, DevKitAuthConfig, OAuthFinalizePayload, StoredSession } from "@/features/auth/types"
 import { useTranslations } from "next-intl"
 import { authFlowHash, clearAuthFlow, rememberAuthFlow, takeAuthFlow } from "@/features/auth/continuation"
 
@@ -42,6 +42,7 @@ type AuthState = {
   loading: boolean
   error: string | null
   isAuthenticated: boolean
+  devkit: DevKitAuthConfig | null
   oauthEnabled: boolean
   oauthProviderLabel: string | null
   oauthPending: OAuthPending | null
@@ -50,7 +51,7 @@ type AuthState = {
   refreshConfig: () => Promise<void>
   registrationOpen: boolean
   navigate: (screen: AuthScreen) => void
-  login: (input: { email: string; password: string }) => Promise<void>
+  login: (input: { email: string; password: string }, useDevKit?: boolean) => Promise<void>
   register: (input: { email: string; displayName: string; password: string; code?: string; setupToken?: string }) => Promise<void>
   startOAuth: () => Promise<void>
   finalizeOAuth: (input: { email?: string; displayName?: string; code?: string; password?: string; setPassword?: boolean }) => Promise<void>
@@ -168,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = React.useState<AuthMe | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [devkit, setDevkit] = React.useState<DevKitAuthConfig | null>(null)
   const [oauthEnabled, setOauthEnabled] = React.useState(false)
   const [oauthProviderLabel, setOauthProviderLabel] = React.useState<string | null>(null)
   const [oauthPending, setOauthPending] = React.useState<OAuthPending | null>(null)
@@ -180,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRegistrationOpen(config.registrationOpen)
     setOauthEnabled(config.oauthEnabled)
     setOauthProviderLabel(config.oauthProviderLabel)
+    setDevkit(config.devkit ?? null)
   }, [])
   const [registrationOpen, setRegistrationOpen] = React.useState(false)
 
@@ -201,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           setOauthEnabled(config.oauthEnabled)
           setOauthProviderLabel(config.oauthProviderLabel)
+          setDevkit(config.devkit ?? null)
           setRegistrationOpen(config.registrationOpen)
           setEmailVerificationRequired(config.emailVerificationRequired)
           setPasswordResetEnabled(config.passwordResetEnabled === true)
@@ -308,19 +312,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [finishAuth, oauthPending, t])
 
   const login = React.useCallback(
-    async (input: { email: string; password: string }) => {
+    async (input: { email: string; password: string }, useDevKit = false) => {
       setLoading(true)
       setError(null)
       try {
-        await finishAuth(await authApi.login(input))
+        if (useDevKit) {
+          if (!devkit) throw new Error(t("devkit.signInFailed"))
+          await finishAuth(await authApi.loginWithDevKit(devkit, input))
+        } else {
+          await finishAuth(await authApi.login(input))
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : t("errors.loginFailed"))
+        setError(useDevKit ? t("devkit.signInFailed") : err instanceof Error ? err.message : t("errors.loginFailed"))
         throw err
       } finally {
         setLoading(false)
       }
     },
-    [finishAuth, t],
+    [devkit, finishAuth, t],
   )
 
   const register = React.useCallback(
@@ -416,6 +425,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         isAuthenticated: Boolean(session),
+        devkit,
         oauthEnabled,
         oauthProviderLabel,
         oauthPending,

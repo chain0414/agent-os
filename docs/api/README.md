@@ -8,6 +8,8 @@ All Server HTTP, SSE, and WebSocket API documentation should live under this dir
 
 ## Documents
 
+- [DevKit Project Auth 接入](./devkit-auth.md)
+
 - [Upgrading to v2](../upgrading.md): current deployment and client upgrade
   guidance, including legacy v1 migrations.
 - [API v2 namespace](./namespace.md): `/api/v2` namespace and client/connector URL rules.

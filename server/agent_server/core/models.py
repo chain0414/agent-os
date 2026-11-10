@@ -262,7 +262,13 @@ class AuthMeResponse(BaseModel):
     serverTime: str
 
 
+class DevKitPublicAuthConfig(BaseModel):
+    apiUrl: str
+    publishableKey: str
+
+
 class AuthConfigResponse(BaseModel):
+    devkit: DevKitPublicAuthConfig | None = None
     emailVerificationRequired: bool = False
     needsBootstrap: bool
     registrationOpen: bool

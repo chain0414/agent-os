@@ -11,6 +11,7 @@ import type {
   AuthCredentials,
   AuthMe,
   ChangePasswordRequest,
+  DevKitAuthConfig,
   AuthPasswordSaltResponse,
   AuthResponse,
   InstanceSettings,
@@ -58,6 +59,68 @@ export class AuthApi {
       },
       { auth: false },
     );
+  }
+
+  async loginWithDevKit(config: DevKitAuthConfig, credentials: { email: string; password: string }): Promise<AuthResponse> {
+    const accessToken = await this.devkitAccessToken(config, credentials);
+    return this.client.post<AuthResponse>("/auth/devkit/login", { accessToken }, { auth: false });
+  }
+
+  async linkDevKit(
+    token: string,
+    config: DevKitAuthConfig,
+    credentials: { email: string; password: string },
+  ): Promise<void> {
+    const accessToken = await this.devkitAccessToken(config, credentials);
+    await this.client.post<void>("/auth/devkit/link", { accessToken }, { token });
+  }
+
+  async signUpWithDevKit(config: DevKitAuthConfig, credentials: { email: string; password: string }): Promise<void> {
+    await this.devkitRequest(config, "/signup", {
+      email: normalizeEmail(credentials.email),
+      password: credentials.password,
+      redirectTo: new URL("/auth/devkit/verify", window.location.origin).href,
+    });
+  }
+
+  async verifyDevKitEmail(config: DevKitAuthConfig, token: string): Promise<void> {
+    await this.devkitRequest(config, "/verify", { token });
+  }
+
+  private async devkitAccessToken(
+    config: DevKitAuthConfig,
+    credentials: { email: string; password: string },
+  ): Promise<string> {
+    const response = await this.devkitRequest(config, "/login", {
+      email: normalizeEmail(credentials.email), password: credentials.password,
+    });
+    const result: { accessToken?: unknown } = await response.json();
+    if (typeof result.accessToken !== "string" || !/^[A-Za-z0-9._~-]{1,8192}$/.test(result.accessToken)) {
+      throw new Error("DevKit session is invalid");
+    }
+    return result.accessToken;
+  }
+
+  private async devkitRequest(
+    config: DevKitAuthConfig,
+    path: "/login" | "/signup" | "/verify",
+    body: Record<string, string>,
+  ): Promise<Response> {
+    const endpoint = new URL(config.apiUrl);
+    if (endpoint.protocol !== "https:" || endpoint.origin !== config.apiUrl) {
+      throw new Error("DevKit Auth URL is invalid");
+    }
+    const response = await fetch(endpoint.origin + "/api/runtime/v1/auth" + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-DevKit-Key": config.publishableKey },
+      body: JSON.stringify(body),
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error("DevKit Auth request failed");
+    return response;
   }
 
   async register(credentials: AuthCredentials): Promise<AuthResponse> {
