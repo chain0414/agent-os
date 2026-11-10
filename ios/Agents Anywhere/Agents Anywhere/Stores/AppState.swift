@@ -6,7 +6,17 @@ import UIKit
 
 @MainActor @Observable
 final class AppState {
-    static let defaultServerURL = URL(string: "https://os.begrow.ai")!
+    static let defaultServerURL: URL = {
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "AgentOSDefaultServerURL") as? String,
+           let components = URLComponents(string: configured),
+           components.scheme == "https", components.host != nil,
+           components.user == nil, components.password == nil,
+           components.query == nil, components.fragment == nil,
+           let url = components.url {
+            return url
+        }
+        return URL(string: "https://os.begrow.ai")!
+    }()
 
     enum Route {
         case loading
