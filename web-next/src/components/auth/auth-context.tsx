@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { authApi } from "@/features/auth/api"
+import { createDevKitBrowserClient, type DevKitBrowserClient } from "@/features/auth/devkit-browser-client"
 import {
   authResponseToSession,
   clearStoredSession,
@@ -43,6 +44,7 @@ type AuthState = {
   error: string | null
   isAuthenticated: boolean
   devkit: DevKitAuthConfig | null
+  devkitFeishuAvailable: boolean
   oauthEnabled: boolean
   oauthProviderLabel: string | null
   oauthPending: OAuthPending | null
@@ -52,6 +54,7 @@ type AuthState = {
   registrationOpen: boolean
   navigate: (screen: AuthScreen) => void
   login: (input: { email: string; password: string }, useDevKit?: boolean) => Promise<void>
+  loginWithDevKitFeishu: () => Promise<void>
   register: (input: { email: string; displayName: string; password: string; code?: string; setupToken?: string }) => Promise<void>
   startOAuth: () => Promise<void>
   finalizeOAuth: (input: { email?: string; displayName?: string; code?: string; password?: string; setPassword?: boolean }) => Promise<void>
@@ -170,6 +173,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [devkit, setDevkit] = React.useState<DevKitAuthConfig | null>(null)
+  const [discoveredFeishuConfig, setDiscoveredFeishuConfig] = React.useState<DevKitAuthConfig | null>(null)
+  const devkitFeishuAvailable = devkit !== null && discoveredFeishuConfig === devkit
   const [oauthEnabled, setOauthEnabled] = React.useState(false)
   const [oauthProviderLabel, setOauthProviderLabel] = React.useState<string | null>(null)
   const [oauthPending, setOauthPending] = React.useState<OAuthPending | null>(null)
@@ -185,6 +190,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setDevkit(config.devkit ?? null)
   }, [])
   const [registrationOpen, setRegistrationOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!devkit) return
+    let current = true
+    async function discover(config: DevKitAuthConfig) {
+      const client = createDevKitBrowserClient(config)
+      if (!client) return
+      const providers = await client.providers()
+      if (current && providers.some(({ providerId, flow }) => providerId === "feishu" && flow === "popup")) {
+        setDiscoveredFeishuConfig(config)
+      }
+    }
+    void discover(devkit).catch(() => undefined)
+    return () => { current = false }
+  }, [devkit])
 
   // On mount: set screen from the current hash, then listen for changes.
   React.useEffect(() => {
@@ -332,6 +352,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [devkit, finishAuth, t],
   )
 
+  const loginWithDevKitFeishu = React.useCallback(async () => {
+    if (!devkit || !devkitFeishuAvailable) return
+    setLoading(true)
+    setError(null)
+    let client: DevKitBrowserClient | undefined
+    try {
+      client = createDevKitBrowserClient(devkit)
+      if (!client) throw new Error("DevKit browser client unavailable")
+      const { accessToken } = await client.signInWithOAuthPopup({ providerId: "feishu" })
+      await finishAuth(await authApi.loginWithDevKitAccessToken(accessToken))
+    } catch {
+      setError(t("devkit.feishuSignInFailed"))
+    } finally {
+      if (client) void client.signOut().catch(() => undefined)
+      setLoading(false)
+    }
+  }, [devkit, devkitFeishuAvailable, finishAuth, t])
+
   const register = React.useCallback(
     async (input: { email: string; displayName: string; password: string; code?: string; setupToken?: string }) => {
       setLoading(true)
@@ -426,6 +464,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error,
         isAuthenticated: Boolean(session),
         devkit,
+        devkitFeishuAvailable,
         oauthEnabled,
         oauthProviderLabel,
         oauthPending,
@@ -436,6 +475,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         navigate,
 
         login,
+        loginWithDevKitFeishu,
         register,
         startOAuth,
         finalizeOAuth,

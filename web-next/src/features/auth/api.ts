@@ -63,6 +63,10 @@ export class AuthApi {
 
   async loginWithDevKit(config: DevKitAuthConfig, credentials: { email: string; password: string }): Promise<AuthResponse> {
     const accessToken = await this.devkitAccessToken(config, credentials);
+    return this.loginWithDevKitAccessToken(accessToken);
+  }
+
+  loginWithDevKitAccessToken(accessToken: string): Promise<AuthResponse> {
     return this.client.post<AuthResponse>("/auth/devkit/login", { accessToken }, { auth: false });
   }
 
@@ -72,7 +76,11 @@ export class AuthApi {
     credentials: { email: string; password: string },
   ): Promise<void> {
     const accessToken = await this.devkitAccessToken(config, credentials);
-    await this.client.post<void>("/auth/devkit/link", { accessToken }, { token });
+    await this.linkDevKitWithAccessToken(token, accessToken);
+  }
+
+  linkDevKitWithAccessToken(token: string, accessToken: string, signal?: AbortSignal): Promise<void> {
+    return this.client.post<void>("/auth/devkit/link", { accessToken }, { token, signal });
   }
 
   async signUpWithDevKit(config: DevKitAuthConfig, credentials: { email: string; password: string }): Promise<void> {

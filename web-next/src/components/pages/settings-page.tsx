@@ -64,7 +64,7 @@ function AccountTab({
   onMeChange: (me: AuthMe) => void
 }) {
   const t = useTranslations("pages.settings")
-  const { devkit } = useAuth()
+  const { devkit, devkitFeishuAvailable } = useAuth()
   const [passwordOpen, setPasswordOpen] = React.useState(false)
   const [avatarOpen, setAvatarOpen] = React.useState(false)
   const [clearingAvatar, setClearingAvatar] = React.useState(false)
@@ -141,7 +141,7 @@ function AccountTab({
       />
 
       <AccountProfileCard me={me} token={token} onMeChange={onMeChange} />
-      {devkit ? <DevKitAccountLink config={devkit} token={token} /> : null}
+      {devkit ? <DevKitAccountLink config={devkit} token={token} feishuAvailable={devkitFeishuAvailable} /> : null}
 
       <ResetPasswordDialog open={passwordOpen} token={token} onOpenChange={setPasswordOpen} />
       <AvatarCropDialog

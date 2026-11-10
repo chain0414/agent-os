@@ -12,7 +12,7 @@ import { PrivacyNotice } from "./privacy-notice"
 import { useTranslations } from "next-intl"
 
 export function LoginScreen() {
-  const { navigate, login, loading, error, devkit, oauthEnabled, oauthProviderLabel, registrationOpen, passwordResetEnabled, startOAuth } = useAuth()
+  const { navigate, login, loading, error, devkit, devkitFeishuAvailable, loginWithDevKitFeishu, oauthEnabled, oauthProviderLabel, registrationOpen, passwordResetEnabled, startOAuth } = useAuth()
   const t = useTranslations("auth")
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
@@ -102,6 +102,18 @@ export function LoginScreen() {
               onClick={() => void submit(true)}
             >
               {t("devkit.signIn")}
+            </Button>
+          ) : null}
+
+          {devkitFeishuAvailable ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              disabled={loading}
+              onClick={() => void loginWithDevKitFeishu()}
+            >
+              {t("devkit.feishuSignIn")}
             </Button>
           ) : null}
 
