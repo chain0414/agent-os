@@ -18,6 +18,8 @@
 
 ### iOS
 
+- 邮箱登录页使用高对比度输入框和常驻字段标签，填写时可用键盘切换到密码，邮箱登录与飞书登录也更容易区分。
+
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 首页可在 App 内用邮箱密码登录 `os.begrow.ai`，也可直接发起飞书授权并返回工作空间，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)）
