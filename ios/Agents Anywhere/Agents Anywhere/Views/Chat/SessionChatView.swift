@@ -57,7 +57,8 @@ struct SessionChatView: View, Equatable {
     var body: some View {
         GeometryReader { geometry in
             Group {
-                if hasStartedLoading {
+                // Resolve the scroll view's initial anchor against the loaded page.
+                if hasStartedLoading && model.isOpeningReady {
                     ChatTimelineView(model: model,
                         onAttachment: openAttachment, onFile: openFile)
                 } else {

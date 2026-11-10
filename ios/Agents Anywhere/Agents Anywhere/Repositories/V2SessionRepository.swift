@@ -65,7 +65,7 @@ final class V2SessionRepository {
         return try await hydrate(entry)
     }
 
-    /// A page visit starts with the latest 100 records, including cached visits.
+    /// A page visit starts with the latest page and retains up to 100 cached records.
     /// Explicit history loads may then accumulate additional 100-record pages.
     func open(sessionId: V2SessionID) async throws -> V2SessionData {
         let entry = entry(for: sessionId)

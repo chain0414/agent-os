@@ -10,7 +10,8 @@ struct ChatTimelineView: View {
     @State private var historyLayout: TimelineHistoryLayout?
     @State private var historyPosition: TimelineHistoryPosition?
     @State private var hasRequestedOlder = false
-    @State private var position = ScrollPosition()
+    @State private var position: ScrollPosition
+    private let anchoredAtTail: Bool
     @State private var scrolling = TimelineScrollState()
     @State private var viewportSample = ChatViewportSample()
     @State private var viewportUpdates = ChatLayoutUpdate<TimelineViewport>()
@@ -35,6 +36,16 @@ struct ChatTimelineView: View {
 #if DEBUG
     private static let drawerLayoutLog = Logger(subsystem: "agents.anywhere", category: "drawer-layout")
 #endif
+
+    init(model: SessionChatModel, onAttachment: @escaping (V2AttachmentContent) -> Void,
+         onFile: @escaping (String) -> Void) {
+        self.model = model
+        self.onAttachment = onAttachment
+        self.onFile = onFile
+        anchoredAtTail = model.session.readingAnchor.anchor == nil
+        // Keep the same target visible as lazy rows above it resolve their heights.
+        _position = State(initialValue: anchoredAtTail ? ScrollPosition(id: "tail", anchor: .bottom) : ScrollPosition())
+    }
 
     private var hasInteractions: Bool {
         !SessionInteractionPager.items(model.session.notices.notices, sessionID: model.session.id,
@@ -77,7 +88,7 @@ struct ChatTimelineView: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .defaultScrollAnchor(.top, for: .initialOffset)
+            .defaultScrollAnchor(anchoredAtTail ? .bottom : .top, for: .initialOffset)
             .defaultScrollAnchor(.top, for: .alignment)
             .defaultScrollAnchor(.top, for: .sizeChanges)
             .allowsHitTesting(model.isOpeningReady)
@@ -179,7 +190,7 @@ struct ChatTimelineView: View {
             }
             .onChange(of: model.isOpeningReady, initial: true) { _, ready in
                 if ready {
-                    scrolling.open(interactionPresented: hasInteractions)
+                    scrolling.open(interactionPresented: hasInteractions, anchoredAtTail: anchoredAtTail)
                     if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
                 }
             }
@@ -343,7 +354,8 @@ struct ChatTimelineView: View {
         }
     }
     private func releaseScrollPosition() {
-        guard position.edge != nil || position.point != nil else { return }
+        guard !position.isPositionedByUser,
+              position.edge != nil || position.point != nil || position.viewID(type: String.self) == "tail" else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) { position.isPositionedByUser = true }

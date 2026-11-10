@@ -6,7 +6,7 @@ struct V2SessionDetailService {
     let realtimeAPI: any V2RealtimeAPIProtocol
 
     func loadPersisted(sessionId: V2SessionID) async throws -> V2SessionData {
-        let timeline = try await latestItems(sessionId: sessionId)
+        let timeline = try await latestItems(sessionId: sessionId, limit: 24)
         // Read metadata after the timeline cursor so recovery can replay every
         // change the timeline missed without regressing to older metadata.
         let meta = try await sessionAPI.sessionMeta(sessionId: sessionId).session

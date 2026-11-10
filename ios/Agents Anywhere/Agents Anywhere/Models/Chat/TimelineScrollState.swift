@@ -35,11 +35,15 @@ nonisolated struct TimelineScrollState: Equatable {
         awaitsUserScrollSettlement && phase == .idle && tail.isMeasured && !navigationIsSuspended
     }
 
-    mutating func open(interactionPresented: Bool = false) {
+    mutating func open(interactionPresented: Bool = false, anchoredAtTail: Bool = false) {
         guard !hasOpened else { return }
         hasOpened = true
         interactionIsPresented = interactionPresented
-        requestBottom()
+        if anchoredAtTail {
+            mode = interactionPresented ? .reading : .following
+        } else {
+            requestBottom()
+        }
     }
 
     mutating func requestBottom() {

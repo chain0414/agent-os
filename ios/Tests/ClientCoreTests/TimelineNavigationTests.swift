@@ -74,12 +74,28 @@ import Testing
         var unmeasured = TimelineScrollState()
         unmeasured.open()
         #expect(unmeasured.pendingBottomRequest == nil)
-        // With top initial alignment, a long session's end may never have been
-        // onscreen. Opening must scroll without waiting for that callback.
+        // If the initial anchor has not made the tail visible, the fallback
+        // must request a scroll without waiting for the visibility callback.
         unmeasured.geometryChanged(viewport())
         #expect(unmeasured.pendingBottomRequest != nil)
         unmeasured.tailVisibilityChanged(.near, visible: false)
         #expect(unmeasured.pendingBottomRequest != nil)
+    }
+
+    @Test func nativeTailAnchorOwnsOpeningUntilVisibilityIsMeasured() {
+        var state = TimelineScrollState()
+        state.geometryChanged(viewport())
+        state.open(anchoredAtTail: true)
+
+        #expect(state.mode == .following)
+        #expect(state.pendingBottomRequest == nil)
+        state.geometryChanged(viewport(height: 20_000))
+        #expect(state.pendingBottomRequest == nil)
+
+        visibility(&state, end: false)
+        #expect(state.pendingBottomRequest != nil, "Fall back if the native anchor missed the tail")
+        visibility(&state, end: true)
+        #expect(state.pendingBottomRequest == nil)
     }
 
     @Test func offsetCallbacksCannotRestartAnAnimationForUnchangedLayout() throws {

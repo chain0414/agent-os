@@ -66,13 +66,14 @@ import Testing
         let http = TestHTTPTransport()
         http.respond = { call in
             if call.path.hasSuffix("/timeline") {
-                #expect(call.query.contains { $0.name == "limit" && $0.value == "100" })
                 if call.query.contains(URLQueryItem(name: "mode", value: "latest")) {
+                    #expect(call.query.contains(URLQueryItem(name: "limit", value: "24")))
                     var page = try fixtureObject("timeline")
-                    page["items"] = try (201...300).map { try itemObject(id: "item-\($0)", order: $0) }
+                    page["items"] = try (277...300).map { try itemObject(id: "item-\($0)", order: $0) }
                     page["hasMore"] = true
                     return try JSONSerialization.data(withJSONObject: page)
                 }
+                #expect(call.query.contains(URLQueryItem(name: "limit", value: "100")))
                 let before = try #require(call.query.first { $0.name == "beforeOrderSeq" }?.value.flatMap(Int.init))
                 let start = max(1, before - 100)
                 let items = try (start..<before).map { try itemObject(id: "item-\($0)", order: $0) }
@@ -84,7 +85,8 @@ import Testing
         let repo = repository(transport: http)
         defer { repo.reset() }
         let initial = try await repo.open(sessionId: "session")
-        #expect(initial.items.count == 100 && initial.items.first?.orderSeq == 201)
+        #expect(initial.items.count == 24 && initial.items.first?.orderSeq == 277)
+        _ = try await repo.loadOlder(sessionId: "session")
         _ = try await repo.loadOlder(sessionId: "session")
         let all = try await repo.loadOlder(sessionId: "session")
         #expect(all.items.count == 300 && !all.hasOlderItems)
