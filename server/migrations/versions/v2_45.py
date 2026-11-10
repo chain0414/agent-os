@@ -10,6 +10,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # An unversioned database may already have the table from metadata.create_all().
+    if sa.inspect(op.get_bind()).has_table("devkit_auth_bindings"):
+        return
     op.create_table(
         "devkit_auth_bindings",
         sa.Column("scope", sa.Text(), nullable=False),

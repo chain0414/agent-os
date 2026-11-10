@@ -56,9 +56,9 @@ def project_auth(monkeypatch):
 
 def test_devkit_auth_is_opt_in(monkeypatch):
     monkeypatch.delenv("AGENT_SERVER_DEVKIT_AUTH", raising=False)
-    client = make_test_client()
-    assert client.get("/auth/config").json().get("devkit") is None
-    assert client.post(LOGIN, json=BODY).status_code == 404
+    with make_test_client() as client:
+        assert client.get("/auth/config").json().get("devkit") is None
+        assert client.post(LOGIN, json=BODY).status_code == 404
 
 
 def test_linked_login_preserves_admin_and_works_with_mobile_exchange(project_auth):
