@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -480,13 +480,13 @@ async def list_session_inventory(
 async def get_session_meta(
     session_id: str,
     background_tasks: BackgroundTasks,
+    usage_recorder: Annotated[UsageRecorder, Depends(get_usage_recorder)],
     user_id: str = Depends(current_user_id),
     db: Store = Depends(get_store),
     manager: ConnectorRpcManager = Depends(get_rpc),
     timeline_write_buffer: TimelineWriteBuffer = Depends(
         get_timeline_write_buffer
     ),
-    usage_recorder: UsageRecorder = Depends(get_usage_recorder),
 ) -> SessionResponse:
     try:
         await db.get_session(session_id, user_id=user_id)
