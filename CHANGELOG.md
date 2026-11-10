@@ -18,6 +18,8 @@
 
 ### iOS
 
+- 首次打开会话时先显示已同步消息，工作设备响应慢或离线时也能查看历史，实时状态在后台更新。（[a549ca4e](https://github.com/chain0414/agent-os/commit/a549ca4e)）
+
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 首页可在 App 内用邮箱密码登录 `os.begrow.ai`，也可直接发起飞书授权并返回工作空间，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)）
