@@ -18,7 +18,16 @@ Agent OS 向 DevKit 的 `/api/runtime/v1/auth/session-metadata` 验证项目、�
 
 ### Web 飞书试点
 
-使用固定 DevKit 提交生成的浏览器 SDK 构建 Web。在 DevKit 运行 `pnpm sdk:bundle` 取得同一版本的 `@devkit/client` 和 `@devkit/contracts`，在 Web 构建时为 `web-next/src/features/auth/devkit-browser-client.ts` 提供 `createDevKitBrowserClient`。Factory 使用公开的 `apiUrl` 和 `publishableKey` 创建 `ProjectAuthClient`，并使用独立的内存 session store。默认构建提供邮箱入口，包含 SDK 的构建在项目发现 `feishu` 后显示飞书入口。
+在可信的 DevKit checkout 固定完整 Git SHA，运行 `corepack pnpm@10.13.1 sdk:bundle`。将生成的 `manifest.json` 和同批 `@devkit/client`、`@devkit/contracts` 两个 tarball 作为私有构建输入。将 `devkit_sdk_dir` 指向该产物目录，`devkit_sdk_commit` 设为预期的完整 Git SHA，再从 Agent OS 仓库根目录构建镜像。
+
+```sh
+docker buildx build --load -f docker/Dockerfile --target server-devkit \
+  --build-context "devkit-sdk=$devkit_sdk_dir" \
+  --build-arg "DEVKIT_SDK_SOURCE_COMMIT=$devkit_sdk_commit" \
+  -t agents-anywhere-server:devkit .
+```
+
+构建会校验 manifest、完整提交和两个 tarball 的 SHA-256，再在构建阶段接入 SDK。浏览器用公开的 `apiUrl` 和 `publishableKey` 创建 `ProjectAuthClient`，每个实例的 session 单独保存在内存中。默认 `server` 镜像和普通 Web 构建无需 SDK。启用 SDK 后，项目发现 `feishu` 才显示飞书入口。
 
 1. 在同一 DevKit 认证域启用飞书，并在飞书测试应用中登记 DevKit 提供的精确回调。确认试点站点的 Origin 已获允许。
 2. 用原有方式登录 Agent OS。打开「DevKit 账号 → 绑定账号」，输入该项目已验证的 DevKit 邮箱和密码，选择「继续绑定飞书」。Agent OS 确认两个账号的绑定后，点击「绑定飞书」并在弹窗内授权。先在账户设置完成绑定，确保飞书加入当前 DevKit 用户。

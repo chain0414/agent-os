@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS web-static
+FROM node:22-bookworm-slim AS web-build
 
 ARG YARN_REGISTRY=
 
@@ -8,17 +8,30 @@ ENV NODE_ENV=production \
     AGENTS_ANYWHERE_API=
 
 WORKDIR /app/web-next
+RUN corepack enable
 
+FROM web-build AS web-static
 COPY web-next/package.json web-next/.yarnrc.yml ./
-RUN corepack enable \
-    && if [ -n "$YARN_REGISTRY" ]; then yarn config set npmRegistryServer "$YARN_REGISTRY"; fi \
+RUN if [ -n "$YARN_REGISTRY" ]; then yarn config set npmRegistryServer "$YARN_REGISTRY"; fi \
     && YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install
 
 COPY web-next ./
 RUN yarn build
 
+# BuildKit replaces this empty stage when the SDK context is supplied.
+FROM scratch AS devkit-sdk
 
-FROM python:3.12-slim AS server
+FROM web-build AS web-static-devkit
+ARG DEVKIT_SDK_SOURCE_COMMIT
+COPY web-next ./
+RUN --mount=type=bind,from=devkit-sdk,target=/run/devkit-sdk \
+    node scripts/prepare-devkit-sdk.mjs /run/devkit-sdk "$DEVKIT_SDK_SOURCE_COMMIT" \
+    && if [ -n "$YARN_REGISTRY" ]; then yarn config set npmRegistryServer "$YARN_REGISTRY"; fi \
+    && YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install \
+    && yarn build
+
+
+FROM python:3.12-slim AS server-runtime
 
 ARG APT_MIRROR=
 ARG PIP_INDEX_URL=
@@ -46,7 +59,6 @@ RUN if [ -n "$PIP_INDEX_URL" ]; then export UV_INDEX_URL="$PIP_INDEX_URL"; fi \
     && cd server && uv sync --no-dev --no-install-project
 
 COPY server ./server
-COPY --from=web-static /app/web-next/out ./web-static
 
 RUN mkdir -p /data
 VOLUME ["/data"]
@@ -55,3 +67,9 @@ EXPOSE 8000
 WORKDIR /app/server
 ENTRYPOINT ["tini", "--"]
 CMD ["uv", "run", "--no-sync", "python", "-m", "agent_server.main"]
+
+FROM server-runtime AS server-devkit
+COPY --from=web-static-devkit /app/web-next/out /app/web-static
+
+FROM server-runtime AS server
+COPY --from=web-static /app/web-next/out /app/web-static
