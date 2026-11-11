@@ -46,10 +46,10 @@ nonisolated struct TimelineScrollState: Equatable {
         }
     }
 
-    mutating func recoverUnmeasuredOpeningTail(generation: Int) {
-        guard hasOpened, !navigationIsSuspended, mode == .following, !userIsScrolling,
-              navigationGeneration == generation, !tail.isMeasured, !tail.isAtBottom else { return }
-        requestBottom()
+    func openingOffsetCorrection(for viewport: TimelineViewport) -> CGFloat? {
+        guard hasOpened, !navigationIsSuspended, mode == .following, phase == .idle,
+              navigationGeneration == 0, viewport.isBeyondBottom else { return nil }
+        return viewport.bottomOffset
     }
 
     mutating func requestBottom() {

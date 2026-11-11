@@ -15,6 +15,7 @@ struct ChatTimelineView: View {
     @State private var scrolling = TimelineScrollState()
     @State private var viewportSample = ChatViewportSample()
     @State private var viewportUpdates = ChatLayoutUpdate<TimelineViewport>()
+    @State private var openingViewportBeyondBottom = false
     @State private var historyUpdates = ChatLayoutUpdate<TimelineHistoryLayout>()
     @State private var latestPull = TimelineHistoryPull()
     @State private var olderPull = TimelineHistoryPull(edge: .older)
@@ -154,6 +155,10 @@ struct ChatTimelineView: View {
                     // Offset samples are needed for restoration, but do not change
                     // the rendered page. Publish only dimensions used by following.
                     viewportSample.value = value
+                    if anchoredAtTail, scrolling.navigationGeneration == 0,
+                       openingViewportBeyondBottom != value.isBeyondBottom {
+                        openingViewportBeyondBottom = value.isBeyondBottom
+                    }
                     let previous = scrolling.viewport
                     if previous.contentHeight != value.contentHeight || previous.visibleHeight != value.visibleHeight
                         || previous.topInset != value.topInset {
@@ -194,13 +199,15 @@ struct ChatTimelineView: View {
                     if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
                 }
             }
-            .task(id: navigationIsSuspended) {
-                guard !navigationIsSuspended, anchoredAtTail, scrolling.navigationGeneration == 0 else { return }
-                // A lazy stack can miss its first native target and never mount
-                // either visibility marker. Give layout a chance before recovering.
-                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-                guard !Task.isCancelled else { return }
-                scrolling.recoverUnmeasuredOpeningTail(generation: 0)
+            .task(id: openingViewportBeyondBottom && !navigationIsSuspended) {
+                guard openingViewportBeyondBottom, !navigationIsSuspended else { return }
+                // Let transient native layout estimates settle before replacing
+                // the invalid initial target with a measured content offset.
+                do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+                guard !Task.isCancelled, let offset = scrolling.openingOffsetCorrection(for: viewport) else { return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { position.scrollTo(y: offset) }
             }
             .task(id: ReadingRestoration(width: readingWidth, ready: model.isOpeningReady)) {
                 guard model.isOpeningReady, readingWidth > 0 else { return }
