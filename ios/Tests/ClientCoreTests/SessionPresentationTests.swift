@@ -123,10 +123,10 @@ import Testing
         let second = ChatTimelineRowModel(try item(id: "b", content: ["kind": "mcp"]))
         let one = TimelineGrouping.groups([first], interactionTargets: [])
         let two = TimelineGrouping.groups([first, second], interactionTargets: [])
-        #expect(one[0].id == two[0].id && two[0].kind == .tools)
+        #expect(one[0].id == two[0].id && one[0].kind == .tools && two[0].kind == .tools)
         #expect(two[0].title == "已完成")
         let protected = TimelineGrouping.groups([first, second], interactionTargets: ["a"])
-        #expect(protected.count == 2 && protected.allSatisfy { $0.kind == .single })
+        #expect(protected.map(\.kind) == [.single, .tools])
         let children = try ["x", "y"].map { ChatTimelineRowModel(try item(id: $0, content: ["kind": "agent_call", "parentItemId": "parent"])) }
         #expect(TimelineGrouping.groups(children, interactionTargets: [])[0].kind == .agents("parent"))
     }

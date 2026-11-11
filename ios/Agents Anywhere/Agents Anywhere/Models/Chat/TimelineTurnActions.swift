@@ -41,7 +41,7 @@ enum TimelineTurnActions {
                 turnOpen = true
                 startsMidTurn = false
             }
-            let messages = group.rows.filter { $0.structure.type == .message && $0.structure.role == .assistant }
+            let messages = group.kind == .completedTurn ? [] : group.rows.filter { $0.structure.isAssistantMessage }
             let fileChanges = group.rows.filter { $0.structure.isFileChange }
             if !messages.isEmpty || !fileChanges.isEmpty { turnOpen = true }
             guard turnOpen else { continue }

@@ -50,4 +50,69 @@ import Testing
         #expect(groups[0].title == "已完成")
         #expect(groups[2].title.hasPrefix("已完成，用时"))
     }
+    private func message(_ id: String, role: String = "assistant", phase: String? = nil) throws -> ChatTimelineRowModel {
+        var item = try itemObject(id: id, text: id)
+        item["role"] = role; item["status"] = "done"; item.removeValue(forKey: "turnId")
+        if let phase { item["content"] = ["text": id, "phase": phase] }
+        return ChatTimelineRowModel(try decode(item))
+    }
+
+    @Test func completedTurnsFoldProgressReasoningAndToolsBeforeFinalReply() throws {
+        let timing: [String: Any] = ["durationMs": 67_620, "status": "completed"]
+        var reason = try itemObject(id: "reason", text: "")
+        reason["type"] = "system"; reason["content"] = ["kind": "reasoning"]
+        let rows = try [message("ask", role: "user"), message("progress"), ChatTimelineRowModel(decode(reason)),
+                        tool("command", timing: timing), message("update"), tool("search", timing: timing),
+                        message("final"), message("next", role: "user"), tool("singleTool", timing: timing),
+                        message("dshFinal")]
+        let groups = TimelineGrouping.groups(rows, interactionTargets: [], latestTurnIsComplete: true)
+        #expect(groups.map(\.id) == ["ask", "progress", "final", "next", "singleTool", "dshFinal"])
+        #expect(groups.filter { $0.kind == .completedTurn }.map { $0.rows.map(\.id) }
+            == [["progress", "reason", "command", "update", "search"], ["singleTool"]])
+        #expect(groups.filter { $0.kind == .completedTurn }.map(\.executionDuration) == [67.62, 67.62])
+        let actions = TimelineTurnActions.build(groups: groups, suppressLatest: false)
+        #expect(actions["final"]?.copyText == "final")
+        #expect(actions["dshFinal"]?.copyText == "dshFinal")
+    }
+
+    @Test func historyWithoutTimingStillFoldsButActiveAndProtectedRowsRemainVisible() throws {
+        let rows = try [message("ask", role: "user"), message("progress"), tool("command"), message("final")]
+        let active = TimelineGrouping.groups(rows, interactionTargets: [], latestTurnIsComplete: false)
+        #expect(active.map(\.id) == ["ask", "progress", "command", "final"])
+        let settled = TimelineGrouping.groups(rows, interactionTargets: [], latestTurnIsComplete: true)
+        #expect(settled.map(\.id) == ["ask", "progress", "final"])
+        #expect(settled[1].executionDuration == nil)
+        let protected = TimelineGrouping.groups(rows, interactionTargets: ["command"], latestTurnIsComplete: true)
+        #expect(protected.first { $0.id == "command" }?.kind == .single)
+        let withoutFinal = TimelineGrouping.groups(Array(rows.dropLast()), interactionTargets: [], latestTurnIsComplete: true)
+        #expect(!withoutFinal.contains { $0.kind == .completedTurn })
+    }
+
+    @Test func firstStreamingToolIsFoldedWhileProgressAndApprovalsStayVisible() throws {
+        let rows = try [message("ask", role: "user"), message("progress", phase: "commentary"),
+                        tool("command", status: "running"), tool("approval")]
+        let groups = TimelineGrouping.groups(rows, interactionTargets: ["approval"], latestTurnIsComplete: false)
+        #expect(groups.map(\.id) == ["ask", "progress", "command", "approval"])
+        #expect(groups.map(\.kind) == [.single, .single, .tools, .single])
+        #expect(!TimelineDisclosureState().isExpanded("group:command"))
+    }
+
+    @Test func finishedCommentaryIsNotMistakenForTheFinalResponse() throws {
+        let rows = try [message("ask", role: "user"), tool("command"), message("update", phase: "commentary")]
+        let groups = TimelineGrouping.groups(rows, interactionTargets: [], latestTurnIsComplete: true)
+        #expect(groups.map(\.id) == ["ask", "command", "update"])
+        #expect(!groups.contains { $0.kind == .completedTurn })
+    }
+
+    @Test func foldingKeepsAnInteractionTargetVisibleAndInOrder() throws {
+        let rows = try [message("ask", role: "user"), tool("before"), tool("approval"),
+                        tool("after"), message("final")]
+        let groups = TimelineGrouping.groups(rows, interactionTargets: ["approval"], latestTurnIsComplete: true)
+        #expect(groups.map(\.id) == ["ask", "before", "approval", "after", "final"])
+        #expect(groups.map(\.kind) == [.single, .completedTurn, .single, .completedTurn, .single])
+        let disclosures = TimelineDisclosureState()
+        #expect(!disclosures.isExpanded("turn:before"))
+        #expect(!disclosures.isExpanded("turn:after"))
+    }
+
 }

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 struct ChatTimelineGroup: Identifiable, Equatable {
-    enum Kind: Equatable { case single, tools, reconnect, agents(String) }
+    enum Kind: Equatable { case single, tools, completedTurn, reconnect, agents(String) }
     let kind: Kind
     let rows: [ChatTimelineRowModel]
     var startsTurn = false
@@ -33,6 +33,9 @@ struct ChatTimelineGroup: Identifiable, Equatable {
             // The full retry messages remain available in the expanded rows.
             return String(localized: "连接重试 · \(rows.count) 次") + (attempts.last.map { "（\($0)）" } ?? "")
         case .tools: return executionTitle
+        case .completedTurn:
+            guard let executionDuration else { return status.label }
+            return String(localized: "用时 \(TimelineExecutionTiming.formatted(executionDuration))")
         }
     }
     private var executionTitle: String {
@@ -44,7 +47,8 @@ struct ChatTimelineGroup: Identifiable, Equatable {
 }
 
 enum TimelineGrouping {
-    static func groups(_ rows: [ChatTimelineRowModel], interactionTargets: Set<String>) -> [ChatTimelineGroup] {
+    static func groups(_ rows: [ChatTimelineRowModel], interactionTargets: Set<String>,
+                       latestTurnIsComplete: Bool? = nil) -> [ChatTimelineGroup] {
         var groups: [ChatTimelineGroup] = []
         var pending: [ChatTimelineRowModel] = []
         var pendingKind = ChatTimelineGroup.Kind.single
@@ -53,7 +57,8 @@ enum TimelineGrouping {
         var previousTurnID: String?
         func flush() {
             guard !pending.isEmpty else { return }
-            groups.append(ChatTimelineGroup(kind: pending.count > 1 ? pendingKind : .single, rows: pending,
+            let foldsTool = pendingKind == .tools && pending[0].structure.type == .tool
+            groups.append(ChatTimelineGroup(kind: pending.count > 1 || foldsTool ? pendingKind : .single, rows: pending,
                 startsTurn: pendingStartsTurn))
             pending = []
             pendingStartsTurn = false
@@ -102,7 +107,65 @@ enum TimelineGrouping {
             default: break
             }
         }
-        return groups
+        guard let latestTurnIsComplete else { return groups }
+        var folded: [ChatTimelineGroup] = []
+        var start = 0
+        for index in groups.indices {
+            guard index > start,
+                  groups[index].startsTurn || groups[index - 1].endsAtHiddenTurnBoundary else { continue }
+            folded += foldCompletedTurn(groups[start..<index], interactionTargets: interactionTargets)
+            start = index
+        }
+        let tail = groups[start...]
+        folded += latestTurnIsComplete || tail.last?.endsAtHiddenTurnBoundary == true
+            ? foldCompletedTurn(tail, interactionTargets: interactionTargets) : Array(tail)
+        return folded
+    }
+
+    private static func foldCompletedTurn(_ groups: ArraySlice<ChatTimelineGroup>,
+                                          interactionTargets: Set<String>) -> [ChatTimelineGroup] {
+        let rows = groups.flatMap(\.rows)
+        let timings = rows.compactMap { $0.structure.executionTiming }
+        guard let reply = rows.last(where: { $0.structure.isAssistantMessage }),
+              reply.structure.status == .done, !reply.structure.isCommentary,
+              !rows.contains(where: { $0.structure.status.isActive }),
+              timings.last(where: { $0.status != nil })?.status.map({ $0 == .done }) ?? true else {
+            return Array(groups)
+        }
+        func isProcess(_ group: ChatTimelineGroup) -> Bool {
+            group.rows.allSatisfy { row in
+                guard row !== reply, !interactionTargets.contains(row.id) else { return false }
+                switch row.structure.groupKind {
+                case .tools, .agents: return true
+                case .single: return row.structure.isAssistantMessage && row.automation == nil
+                default: return false
+                }
+            }
+        }
+        let process = groups.filter(isProcess)
+        guard let last = process.last,
+              let replyIndex = groups.firstIndex(where: { $0.id == reply.id }),
+              let lastProcessIndex = groups.firstIndex(where: { $0.id == last.id }),
+              lastProcessIndex < replyIndex else {
+            return Array(groups)
+        }
+        let processIDs = Set(process.map(\.id))
+        let duration = timings.compactMap(\.duration).last
+        var result: [ChatTimelineGroup] = []
+        var run: [ChatTimelineGroup] = []
+        func appendRun() {
+            guard let first = run.first else { return }
+            result.append(ChatTimelineGroup(kind: .completedTurn, rows: run.flatMap(\.rows),
+                startsTurn: first.startsTurn,
+                executionDuration: run.last?.id == last.id ? duration : nil, executionStatus: .done))
+            run.removeAll(keepingCapacity: true)
+        }
+        for group in groups {
+            if processIDs.contains(group.id) { run.append(group) }
+            else { appendRun(); result.append(group) }
+        }
+        appendRun()
+        return result
     }
 
     static func reconnectMessage(_ item: V2TimelineItem) -> String? {

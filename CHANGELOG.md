@@ -22,6 +22,8 @@
 
 ### iOS
 
+- 工具调用即使只有一条也默认折叠，Codex 和 DSH 的已完成轮次同时折叠过程记录，保留最终回复和需要处理的交互。
+
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 首页可用邮箱密码登录 `os.begrow.ai` 并进入工作空间，表单有常驻标签并支持用键盘切到密码，也可通过「其他登录方式」选择飞书登录，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)、[#4](https://github.com/chain0414/agent-os/pull/4)）

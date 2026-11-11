@@ -35,7 +35,7 @@ struct SessionTimelineGroupView: View, Equatable {
     @ViewBuilder private var content: some View {
         if group.kind == .single { rows }
         else {
-            TimelineFold(id: "group:\(group.id)", title: group.title,
+            TimelineFold(id: "\(group.kind == .completedTurn ? "turn" : "group"):\(group.id)", title: group.title,
                 symbol: group.kind == .reconnect ? "wifi.slash" : agentGroup ? "person.2" : "hammer",
                 status: group.status, disclosures: chat.disclosures,
                 executionSummary: group.kind != .reconnect) {
