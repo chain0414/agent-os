@@ -95,6 +95,12 @@ final class SessionChatModel {
         guard let meta = session.metadata else { return false }
         return (meta.runtimeType ?? meta.runtime) == "dsh"
     }
+    func timelineGroups(interactionTargets: Set<String>) -> [ChatTimelineGroup] {
+        let runtime = session.metadata.map { $0.runtimeType ?? $0.runtime }
+        let foldsCompletedTurns = runtime == "codex" || runtime == "dsh"
+        return TimelineGrouping.groups(timeline.rows, interactionTargets: interactionTargets,
+            latestTurnIsComplete: foldsCompletedTurns ? !isRunning && !session.hasNewerItems : nil)
+    }
     var sendingPlaceholder: String? {
         let submitting = session.pendingMessages.contains { $0.delivery == .sending || $0.delivery == .accepted }
         if submitting || session.awaitingReplyID != nil { return session.isLocalCreation ? String(localized: "正在创建会话…") : String(localized: "等待 \(agentName) 回应…") }
