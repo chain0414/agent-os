@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import os
 import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from typing import Annotated, Any
 
@@ -15,9 +16,13 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
+    Response,
     WebSocket,
 )
+from fastapi.routing import APIRoute
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
 
 from agent_server.api.connector_runtimes import (
@@ -122,6 +127,57 @@ from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 from agent_server.services.usage_events import UsageRecorder
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+def _accepts_gzip(values: list[str]) -> bool:
+    qualities: dict[str, float] = {}
+    for entry in ",".join(values).split(","):
+        coding, separator, parameters = entry.partition(";")
+        coding = coding.strip().lower()
+        if coding not in {"gzip", "*"}:
+            continue
+        quality = 1.0
+        if separator:
+            name, _, value = parameters.partition("=")
+            try:
+                quality = float(value) if name.strip().lower() == "q" else 0.0
+            except ValueError:
+                quality = 0.0
+        if not 0.0 <= quality <= 1.0:
+            quality = 0.0
+        qualities[coding] = min(qualities.get(coding, 1.0), quality)
+    # An explicit refusal of gzip takes precedence over a wildcard.
+    return qualities.get("gzip", qualities.get("*", 0.0)) > 0.0
+
+
+class _SessionReadRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        original = super().get_route_handler()
+        compress_timeline = self.path.endswith("/timeline")
+
+        async def handle(request: Request) -> Response:
+            start = time.monotonic()
+            response = await original(request)
+            if (
+                compress_timeline
+                and response.status_code == 200
+                and response.headers.get("content-type", "").split(";", 1)[0] == "application/json"
+                and "content-encoding" not in response.headers
+                and len(response.body) >= 1024
+            ):
+                response.headers.add_vary_header("Accept-Encoding")
+                if _accepts_gzip(request.headers.getlist("accept-encoding")):
+                    # A large history page must not block the event loop while encoding.
+                    response.body = await run_in_threadpool(gzip.compress, response.body, compresslevel=4, mtime=0)
+                    response.headers["Content-Encoding"] = "gzip"
+                    response.headers["Content-Length"] = str(len(response.body))
+            response.headers["Server-Timing"] = f"app;dur={(time.monotonic() - start) * 1000:.1f}"
+            return response
+
+        return handle
+
+
+_session_reads = APIRouter(route_class=_SessionReadRoute)
 
 _SESSION_WS_EVENT_DEDUP_LIMIT = 1_024
 _SESSION_WS_LIVE_PROJECTION_EVENT_TYPES = {
@@ -834,7 +890,7 @@ async def patch_session_selections(
     )
 
 
-@router.get("/{session_id}/opening-preview", response_model=ProtocolSessionOpeningPreview)
+@_session_reads.get("/{session_id}/opening-preview", response_model=ProtocolSessionOpeningPreview)
 async def session_opening_preview(
     session_id: str,
     user_id: str = Depends(current_user_id),
@@ -853,7 +909,7 @@ async def session_opening_preview(
     )
 
 
-@router.get("/{session_id}/timeline", response_model=ProtocolTimelineResponse)
+@_session_reads.get("/{session_id}/timeline", response_model=ProtocolTimelineResponse)
 async def session_timeline(
     session_id: str,
     after_seq: int = Query(0, alias="afterSeq", ge=0),
@@ -901,6 +957,9 @@ async def session_timeline(
         hasMore=has_more,
         serverTime=utc_now(),
     )
+
+
+router.include_router(_session_reads)
 
 
 # Removed migration route:

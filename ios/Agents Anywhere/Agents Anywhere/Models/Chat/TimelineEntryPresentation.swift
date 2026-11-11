@@ -184,6 +184,9 @@ nonisolated enum TimelineText {
 
 extension V2TimelineItem {
     var isReasoning: Bool { type == .reasoning || type == .system && raw["content"]?["kind"] == .string("reasoning") }
+    var hasOpeningMessage: Bool {
+        type == .message && isVisibleInChat && displayText.contains { !$0.isWhitespace }
+    }
     var isVisibleInChat: Bool {
         guard status != .hidden, ![.turnStart, .turnEnd].contains(type) else { return false }
         if type == .artifact && raw["content"]?["kind"] == .string("diff") { return false }

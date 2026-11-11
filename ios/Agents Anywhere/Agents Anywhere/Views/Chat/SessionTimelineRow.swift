@@ -29,6 +29,7 @@ struct SessionTimelineRow: View, Equatable {
                     UserMessageBubble(text: row.text, attachments: files, onAttachment: onAttachment, loadThumbnail: chat.thumbnail,
                         expansion: chat.session.userMessageExpansion,
                         messageKey: UserMessageExpansionStore.key(itemID: row.id, clientMessageID: row.value.source["clientMessageId"]?.stringValue))
+                        .onScrollVisibilityChange(threshold: 0.02, openingBodyVisibilityChanged)
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
                         if !omitsAssistantText { markdown }
@@ -57,11 +58,16 @@ struct SessionTimelineRow: View, Equatable {
         // A row-wide context menu would intercept them and highlight the item.
     }
 
+    private func openingBodyVisibilityChanged(_ visible: Bool) {
+        if visible { chat.finishPreviewHandoff(visible: row.value) }
+    }
+
     private var markdown: some View {
         ChatMarkdownView(text: row.text, isStreaming: row.isRevealing, resolvesFileReferences: true)
             .environment(\.chatLayoutTraceOwner, row.id)
             .id(row.layoutGeneration)
             .frame(minHeight: row.value.isStreamingText ? lineHeight : nil, alignment: .topLeading)
+            .onScrollVisibilityChange(threshold: 0.02, openingBodyVisibilityChanged)
     }
 }
 

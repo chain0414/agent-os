@@ -6,7 +6,7 @@
 
 ### 升级须知
 
-- 自托管实例可配置 DevKit Project Auth。升级 Server 需应用 `v2_45`；Web 和 iOS 2.5 在启用后显示 DevKit 登录。
+- 自托管实例可配置 DevKit Project Auth。升级 Server 需应用 `v2_45`。Web 和 iOS 2.6 在启用后显示 DevKit 登录。（[#5](https://github.com/chain0414/agent-os/pull/5)）
 
 - iOS 直接飞书登录需配套 Server 2.4，已有飞书绑定可继续使用，无新增数据库迁移。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
@@ -21,8 +21,6 @@
 - 自托管实例可启用飞书登录，首次绑定时用现有邮箱和密码确认账号，之后可以直接用已绑定的飞书身份登录。（[#1](https://github.com/chain0414/agent-os/pull/1)）
 
 ### iOS
-
-- 打开会话时优先显示已有历史，无缓存时先显示最近一条已同步消息的正文再补齐时间线，首次加载超时时可重试，并在非计量网络下预加载少量常用会话的消息。（[#3](https://github.com/chain0414/agent-os/pull/3)）
 
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
@@ -72,6 +70,16 @@
 
 - Codex 版本检测不再阻塞发现和配置验证期间的心跳与本机控制，并避免 Windows 上版本检测超时后卡住。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
 - Claude 工具结果中的内联图片改为显示类型和大小摘要，避免含大量截图的会话因请求过大而同步失败。（[#548](https://github.com/anywhere-labs/Agents-Anywhere/pull/548)）
+
+## 2.5.1（2026-11-11）
+
+### 会话创建与消息交付
+
+- 支持压缩的客户端在弱网下读取较大的会话历史时，需要下载的数据更少。（[#6](https://github.com/chain0414/agent-os/pull/6)）
+
+### iOS
+
+- 点击会话后立即读取已有历史，无缓存时优先显示最近一条已同步消息，历史补齐慢或失败时保留已显示的正文，首次加载超时仍可重试。（[#3](https://github.com/chain0414/agent-os/pull/3)、[#6](https://github.com/chain0414/agent-os/pull/6)）
 
 ## 2.1.0（2026-10-27）
 

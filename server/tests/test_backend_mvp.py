@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import hashlib
 import json
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -2842,8 +2844,12 @@ def test_opening_preview_returns_only_bounded_authorized_message_text(tmp_path):
     client = make_client(tmp_path)
     _, connector_token, session_id, headers = create_connector_and_session(client)
     path = f"/sessions/{session_id}/opening-preview"
+    timeline_path = f"/sessions/{session_id}/timeline"
     assert client.get(path, headers=headers).json() == {"text": None, "truncated": False}
     assert client.get(path, headers=auth_headers(client, user_id="other")).status_code == 404
+    small_page = client.get(timeline_path, headers={**headers, "Accept-Encoding": "gzip"})
+    assert small_page.status_code == 200
+    assert "content-encoding" not in small_page.headers
 
     body = "正文" + "\x01" * 1500
     with client.websocket_connect(
@@ -2889,6 +2895,28 @@ def test_opening_preview_returns_only_bounded_authorized_message_text(tmp_path):
     assert result.status_code == 200
     assert len(result.content) <= 8192
     assert result.json() == {"text": body[:1200], "truncated": True}
+    assert "content-encoding" not in result.headers
+    assert re.fullmatch(r"app;dur=\d+\.\d", result.headers["server-timing"])
+
+    identity = client.get(timeline_path, headers={**headers, "Accept-Encoding": "gzip;q=0, *;q=1"})
+    assert identity.status_code == 200
+    assert "content-encoding" not in identity.headers
+    assert "accept-encoding" in {value.strip().lower() for value in identity.headers["vary"].split(",")}
+    assert re.fullmatch(r"app;dur=\d+\.\d", identity.headers["server-timing"])
+
+    with client.stream("GET", f"/api/v2{timeline_path}", headers={**headers, "Accept-Encoding": "br, GZip;q=0.5"}) as response:
+        assert response.status_code == 200
+        assert response.headers["content-encoding"] == "gzip"
+        assert "accept-encoding" in {value.strip().lower() for value in response.headers["vary"].split(",")}
+        assert re.fullmatch(r"app;dur=\d+\.\d", response.headers["server-timing"])
+        raw = b"".join(response.iter_raw())
+        assert len(raw) == int(response.headers["content-length"])
+        assert len(raw) < len(identity.content)
+        compressed = json.loads(gzip.decompress(raw))
+
+    uncompressed = identity.json()
+    assert compressed.pop("serverTime") and uncompressed.pop("serverTime")
+    assert compressed == uncompressed
 
 
 def test_session_timeline_endpoint_reads_durable_timeline_only(tmp_path):
