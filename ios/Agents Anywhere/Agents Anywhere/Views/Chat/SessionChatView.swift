@@ -5,6 +5,7 @@ struct SessionChatView: View, Equatable {
     @StateObject private var storage: StableViewModel<SessionChatModel>
     private var model: SessionChatModel { storage.value }
     private let sessionIdentity: V2SessionModel
+    private let sessionSummary: V2SessionMeta?
     let deviceName: String?
     let onMenu: () -> Void
     @State private var sheet: SessionSheet?
@@ -29,7 +30,7 @@ struct SessionChatView: View, Equatable {
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var takeoverPillHeight: CGFloat = 32
 
-    init(session: V2SessionModel, services: V2ClientServices, deviceName: String?,
+    init(session: V2SessionModel, services: V2ClientServices, deviceName: String?, summary: V2SessionMeta? = nil,
          onMenu: @escaping () -> Void) {
         _storage = StateObject(wrappedValue: StableViewModel {
             let chat = SessionChatModel(session: session, repository: services.sessionRepository, attachments: services.attachments,
@@ -41,6 +42,7 @@ struct SessionChatView: View, Equatable {
             return chat
         })
         sessionIdentity = session
+        sessionSummary = summary
         self.deviceName = deviceName
         fileService = services.workspaceFiles; detailService = services.sessionDetail
         speechService = services.speech
@@ -53,6 +55,7 @@ struct SessionChatView: View, Equatable {
     // model changes and real size/environment changes still update this subtree.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.sessionIdentity === rhs.sessionIdentity && lhs.deviceName == rhs.deviceName
+            && lhs.sessionSummary?.id == rhs.sessionSummary?.id
     }
     var body: some View {
         GeometryReader { geometry in
@@ -169,7 +172,7 @@ struct SessionChatView: View, Equatable {
         .task(id: hasStartedLoading) {
             guard hasStartedLoading else { return }
             // Reattaching a loaded detail only resumes observation.
-            await model.prepareOpening()
+            await model.prepareOpening(summary: sessionSummary)
             guard !Task.isCancelled else { return }
             await model.timeline.run(sessionID: session.id, repository: model.repository)
         }
@@ -223,7 +226,7 @@ struct SessionChatView: View, Equatable {
             VStack(spacing: 12) {
                 if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
                     Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button(String(localized: "重试")) { Task { await model.prepareOpening() } }
+                    Button(String(localized: "重试")) { Task { await model.prepareOpening(summary: sessionSummary) } }
                 } else {
                     ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
                 }

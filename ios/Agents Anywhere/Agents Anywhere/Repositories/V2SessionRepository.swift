@@ -21,6 +21,7 @@ final class V2SessionRepository {
     private var entries: [V2SessionID: Entry] = [:]
     private var accessCounter = 0
     private var suspended = false
+    private var prefetchID: UUID?
     private(set) var network = V2NetworkStatus()
 
     init(
@@ -56,20 +57,36 @@ final class V2SessionRepository {
     }
 
     /// Returns cached durable content immediately. Observe to keep live facts fresh.
-    func load(sessionId: V2SessionID) async throws -> V2SessionData {
+    func load(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
         await restoreCachedSession(id: sessionId)
         try requireCurrent(entry)
         if let data = entry.projection?.data { return data }
         try requireNetwork()
-        return try await hydrate(entry)
+        return try await hydrate(entry, summary: summary)
+    }
+
+    /// Warm at most two sidebar sessions. A tap can join the same read.
+    func prefetch(_ summaries: [V2SessionMeta]) async {
+        guard prefetchID == nil, canPrefetch else { return }
+        let id = UUID()
+        prefetchID = id
+        defer { if prefetchID == id { prefetchID = nil } }
+        for summary in summaries.prefix(2) {
+            guard !Task.isCancelled, prefetchID == id, canPrefetch else { return }
+            _ = try? await load(sessionId: summary.id, summary: summary)
+        }
+    }
+
+    private var canPrefetch: Bool {
+        !suspended && network.allowsSessionPrefetch
     }
 
     /// A page visit starts with the latest page and retains up to 100 cached records.
     /// Explicit history loads may then accumulate additional 100-record pages.
-    func open(sessionId: V2SessionID) async throws -> V2SessionData {
+    func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
-        _ = try await load(sessionId: sessionId)
+        _ = try await load(sessionId: sessionId, summary: summary)
         try Task.checkCancellation()
         try requireCurrent(entry)
         entry.readVersion += 1
@@ -416,26 +433,29 @@ final class V2SessionRepository {
 
     /// Cancellation plus identity checks prevent late responses from repopulating a signed-out cache.
     func reset() {
+        prefetchID = nil
         persistenceTask?.cancel(); persistenceTask = nil
         let old = Array(entries.values)
         entries.removeAll()
         for entry in old { dispose(entry) }
     }
 
-    private func hydrate(_ entry: Entry) async throws -> V2SessionData {
+    private func hydrate(_ entry: Entry, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
         if let task = entry.loadTask { return try await task.value }
         entry.readVersion += 1
         entry.historyTask?.cancel()
         entry.historyTask = nil
         let version = entry.readVersion
+        let seed = summary?.id == entry.id ? summary : nil
         let task = Task { [self] in
             defer {
                 if entry.readVersion == version { entry.loadTask = nil }
                 evict()
             }
-            let data = try await detail.loadPersisted(sessionId: entry.id)
+            let data = try await detail.loadPersisted(sessionId: entry.id, summary: seed)
             try requireCurrent(entry, version: version)
             entry.projection = V2SessionProjection(data: data, maximumItems: policy.maximumTimelineItems)
+            entry.needsMetadataRefresh = seed != nil
             invalidateCatalogs(entry)
             entry.error = nil
             emit(entry)
@@ -466,6 +486,7 @@ final class V2SessionRepository {
                         _ = try await self.hydrate(entry)
                         entry.needsSnapshot = false
                     }
+                    self.refreshOpeningMetadata(entry)
                     let events = try await self.detail.updates(sessionId: entry.id, clientId: "ios-session-\(connectionID)")
                     for try await event in events {
                         try self.requireCurrent(entry)
@@ -501,6 +522,21 @@ final class V2SessionRepository {
                     catch { return }
                 }
             }
+        }
+    }
+
+    private func refreshOpeningMetadata(_ entry: Entry) {
+        guard entry.needsMetadataRefresh, entry.metadataTask == nil else { return }
+        let connectionID = entry.connectionID
+        entry.metadataTask = Task { [weak self, weak entry] in
+            guard let self, let entry else { return }
+            defer { if entry.connectionID == connectionID { entry.metadataTask = nil } }
+            guard let meta = try? await self.detail.metadata(sessionId: entry.id),
+                  self.isCurrent(entry), !Task.isCancelled, entry.connectionID == connectionID,
+                  entry.needsMetadataRefresh else { return }
+            entry.needsMetadataRefresh = false
+            guard let current = entry.projection?.data.session, meta.updatedSeq >= current.updatedSeq else { return }
+            self.applyMetadata([meta])
         }
     }
 
@@ -643,6 +679,8 @@ final class V2SessionRepository {
         entry.connectionTask = nil
         entry.recoveryTask?.cancel()
         entry.recoveryTask = nil
+        entry.metadataTask?.cancel()
+        entry.metadataTask = nil
         entry.connection = .inactive
         entry.projection?.markStale()
         invalidateCatalogs(entry)
@@ -676,6 +714,7 @@ private final class Entry {
     let id: V2SessionID
     let model: V2SessionModel
     var needsSnapshot = false
+    var needsMetadataRefresh = false
     var hasReadLocal = false
     var isDirty = false
     var emitScheduled = false
@@ -693,6 +732,7 @@ private final class Entry {
     var historyTask: Task<V2SessionData, Error>?
     var catalogTask: Task<V2SessionCatalogs, Error>?
     var recoveryTask: Task<Void, Error>?
+    var metadataTask: Task<Void, Never>?
     var connectionTask: Task<Void, Never>?
     var catalogs: V2SessionCatalogs?
     var catalogScopes: Set<String>?

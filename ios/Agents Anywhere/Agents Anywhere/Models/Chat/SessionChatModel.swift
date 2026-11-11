@@ -237,7 +237,7 @@ final class SessionChatModel {
         commandFailure = CommandFeedback(title: String(localized: "无法执行指令"), message: message)
     }
 
-    func prepareOpening() async {
+    func prepareOpening(summary: V2SessionMeta? = nil) async {
         // Compact/split replacement creates a new view owner, not a fresh
         // page visit. Preserve the loaded window containing the reading anchor.
         if session.isValid, timeline.hasPresentedSnapshot, !session.readingAnchor.followsBottom {
@@ -249,7 +249,7 @@ final class SessionChatModel {
         do {
             // Both cold and cached visits begin with one latest page. Older
             // records are added only by the user's explicit history requests.
-            _ = try await repository.open(sessionId: session.id)
+            _ = try await repository.open(sessionId: session.id, summary: summary)
         } catch {
             guard !Task.isCancelled else { return }
             openingError = error.localizedDescription

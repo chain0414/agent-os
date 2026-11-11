@@ -5,6 +5,86 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct SessionRepositoryTests {
+    @Test func dashboardOpeningPublishesHistoryBeforeSlowMetadata() async throws {
+        let http = TestHTTPTransport(), metadata = TestGate()
+        let repo = repository(transport: http)
+        defer { repo.reset(); metadata.release() }
+        http.respond = { call in
+            if call.path.hasSuffix("/meta") { await metadata.wait() }
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let session = repo.session(id: summary.id)
+        let chat = SessionChatModel(session: session, repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        let opening = Task { await chat.prepareOpening(summary: summary) }
+        defer { opening.cancel() }
+        try await eventually { chat.isOpeningReady }
+        #expect(chat.timeline.rows.last?.id == "item")
+        #expect(http.count("/meta") == 0)
+        let observation = Task { await chat.timeline.run(sessionID: session.id, repository: repo) }
+        defer { observation.cancel() }
+        try await eventually { http.count("/meta") == 1 }
+        try await eventually { session.runtime.isFresh }
+        #expect(chat.timeline.rows.last?.id == "item")
+    }
+
+    @Test func prefetchReusesThePendingTimelineAndSkipsMeteredNetworks() async throws {
+        let http = TestHTTPTransport(), timeline = TestGate(), realtime = TestRealtimeAPI()
+        let repo = repository(transport: http, realtime: realtime)
+        defer { repo.reset(); timeline.release() }
+        let candidates = try ["session", "second", "third"].map { try snapshot(id: $0).session }
+        repo.updateConnectivity(.init(availability: .online, isExpensive: true))
+        await repo.prefetch(candidates)
+        #expect(http.calls.isEmpty)
+
+        http.respond = { call in
+            if call.path == "/sessions/session/timeline" { await timeline.wait() }
+            let id = String(call.path.split(separator: "/")[1])
+            var page = try fixtureObject("timeline")
+            page["sessionId"] = id
+            page["items"] = try [itemObject(sessionID: id)]
+            return try JSONSerialization.data(withJSONObject: page)
+        }
+        repo.updateConnectivity(.init(availability: .online))
+        let prefetch = Task { await repo.prefetch(candidates) }
+        defer { prefetch.cancel() }
+        try await eventually { http.count("/timeline") == 1 }
+        let summary = try #require(candidates.first)
+        let opening = Task { try await repo.open(sessionId: summary.id, summary: summary) }
+        defer { opening.cancel() }
+        await Task.yield()
+        timeline.release()
+        let opened = try await opening.value
+        await prefetch.value
+        #expect(opened.items.last?.id == "item")
+        #expect(http.calls.map(\.path) == ["/sessions/session/timeline", "/sessions/second/timeline"])
+        #expect(realtime.tickets == 0)
+    }
+
+    @Test func slowColdHistoryShowsARetryAndCanOpenAfterwards() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http, openingTimeout: .milliseconds(100))
+        defer { repo.reset() }
+        http.respond = { _ in
+            try await Task.sleep(for: .seconds(60))
+            throw URLError(.cannotConnectToHost)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let session = repo.session(id: summary.id)
+        let chat = SessionChatModel(session: session, repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        await chat.prepareOpening(summary: summary)
+        #expect(chat.openingError != nil)
+        #expect(!chat.isOpeningReady)
+
+        http.respond = nil
+        await chat.prepareOpening(summary: summary)
+        #expect(chat.openingError == nil)
+        #expect(chat.isOpeningReady)
+        #expect(chat.timeline.rows.last?.id == "item")
+    }
+
     @Test func coldOpenShowsPersistedMessagesWhileConnectorIsOffline() async throws {
         let http = TestHTTPTransport()
         http.respond = { call in
