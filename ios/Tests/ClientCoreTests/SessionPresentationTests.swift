@@ -105,6 +105,24 @@ import Testing
         #expect(diff.lines[7].oldLine == 7 && diff.lines[7].newLine == 10)
     }
 
+    @Test @MainActor func codexControlMarkersStayInRawHistoryButNotInChat() throws {
+        let markers = try ["steered", "sleep"].map { nativeType in
+            try item("system", id: nativeType, content: ["kind": "unknown", "rawType": nativeType],
+                     source: ["runtime": "codex"])
+        }
+        let unrelatedRuntime = try item("system", id: "dsh", content: ["kind": "unknown", "rawType": "steered"],
+                                        source: ["runtime": "dsh"])
+        let futureEvent = try item("system", id: "new", content: ["kind": "unknown", "rawType": "newEvent"],
+                                   source: ["runtime": "codex"])
+        let instruction = try item("message", id: "instruction", content: ["text": "Additional instructions"],
+                                   source: ["runtime": "codex", "itemType": "steeringUserMessage"])
+        let presentation = SessionTimelinePresentation()
+        presentation.presentOpening(markers + [unrelatedRuntime, futureEvent, instruction], pendingMessages: [])
+        #expect(presentation.rows.map(\.id) == ["dsh", "new", "instruction"])
+        #expect(presentation.rows.last?.text == instruction.displayText)
+        #expect(markers.map { $0.raw["content"]?["rawType"] } == [.string("steered"), .string("sleep")])
+    }
+
     @Test func reasoningAndVisibilityHonorWebSemanticsAndKeepRawExports() throws {
         let reasoning = try item("system", content: ["kind": "reasoning", "summaries": [["text": "First"], ["text": "Second"]], "rawText": "fallback"])
         #expect(reasoning.displayText == "First\n\nSecond" && reasoning.isReasoning)

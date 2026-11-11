@@ -189,7 +189,14 @@ extension V2TimelineItem {
     }
     var isVisibleInChat: Bool {
         guard status != .hidden, ![.turnStart, .turnEnd].contains(type) else { return false }
-        if type == .artifact && raw["content"]?["kind"] == .string("diff") { return false }
+        let content = raw["content"]
+        if type == .artifact && content?["kind"] == .string("diff") { return false }
+        if type == .system, source["runtime"] == .string("codex"), content?["kind"] == .string("unknown") {
+            switch content?["rawType"]?.stringValue {
+            case "steered", "sleep": return false
+            default: break
+            }
+        }
         return true
     }
 }
