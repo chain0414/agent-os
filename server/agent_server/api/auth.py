@@ -48,7 +48,13 @@ from agent_server.core.models import (
 )
 from agent_server.core.oauth_clients import MOBILE_OAUTH_CLIENT
 from agent_server.core.utc import utc_now
-from agent_server.deps import current_user, get_store, user_id_from_authorization
+from agent_server.deps import (
+    configured_devkit_auth,
+    current_user,
+    get_store,
+    require_local_auth,
+    user_id_from_authorization,
+)
 from agent_server.infra.repositories.email_accounts import (
     EmailRateLimitError,
     EmailVerificationError,
@@ -59,7 +65,6 @@ from agent_server.services.devkit_auth import (
     DevKitAuthConfig,
     DevKitAuthUnavailable,
     DevKitSessionRejected,
-    load_devkit_auth,
     verify_devkit_session,
 )
 from agent_server.services.email_delivery import (
@@ -114,6 +119,16 @@ async def auth_config(
     setupTokenExpiresAt    → countdown source for the bootstrap form (UTC ISO);
                              never exposes the token value itself.
     """
+    config = configured_devkit_auth()
+    public_devkit = None
+    if config:
+        public_devkit = DevKitPublicAuthConfig(
+            apiUrl=config.apiUrl, publishableKey=config.publishableKey, managedOnly=config.managedOnly,
+        )
+        if config.managedOnly:
+            return AuthConfigResponse(
+                devkit=public_devkit, needsBootstrap=False, registrationOpen=False, serverTime=utc_now(),
+            )
     needs_bootstrap = await db.count_users() == 0
     expires_at: str | None = None
     if needs_bootstrap:
@@ -123,12 +138,8 @@ async def auth_config(
         expires_at = await _setup_token(request).current_expires_at_iso()
     oauth_config = await db.get_oauth_provider_config()
     email_enabled = bool((await get_email_settings(db)).get("enabled"))
-    try:
-        config = load_devkit_auth()
-    except DevKitAuthUnavailable:
-        config = None
     return AuthConfigResponse(
-        devkit=DevKitPublicAuthConfig(apiUrl=config.apiUrl, publishableKey=config.publishableKey) if config else None,
+        devkit=public_devkit,
         emailVerificationRequired=email_enabled,
         needsBootstrap=needs_bootstrap,
         registrationOpen=await db.is_registration_open(),
@@ -141,7 +152,7 @@ async def auth_config(
     )
 
 
-@router.post("/auth/password-salt", response_model=AuthPasswordSaltResponse)
+@router.post("/auth/password-salt", dependencies=[Depends(require_local_auth)], response_model=AuthPasswordSaltResponse)
 async def auth_password_salt(
     payload: AuthPasswordSaltRequest,
     db: Store = Depends(get_store),
@@ -153,7 +164,7 @@ async def auth_password_salt(
     return AuthPasswordSaltResponse(salt=salt or secrets.token_urlsafe(16), serverTime=utc_now())
 
 
-@router.post("/auth/register", response_model=AuthResponse)
+@router.post("/auth/register", dependencies=[Depends(require_local_auth)], response_model=AuthResponse)
 async def auth_register(
     payload: AuthRequest, request: Request, db: Store = Depends(get_store)
 ) -> AuthResponse:
@@ -209,7 +220,7 @@ async def auth_register(
     return _auth_response(user)
 
 
-@router.post("/auth/login", response_model=AuthResponse)
+@router.post("/auth/login", dependencies=[Depends(require_local_auth)], response_model=AuthResponse)
 async def auth_login(payload: AuthRequest, db: Store = Depends(get_store)) -> AuthResponse:
     try:
         user = await db.verify_email_user(
@@ -229,7 +240,7 @@ class DevKitAuthRequest(BaseModel):
 
 async def _devkit_identity(payload: DevKitAuthRequest) -> tuple[DevKitAuthConfig, str]:
     try:
-        config = load_devkit_auth()
+        config = configured_devkit_auth()
         if config is None:
             raise HTTPException(status_code=404, detail="DevKit login is not enabled")
         access_token = payload.accessToken.get_secret_value()
@@ -242,7 +253,7 @@ async def _devkit_identity(payload: DevKitAuthRequest) -> tuple[DevKitAuthConfig
         raise HTTPException(status_code=503, detail="DevKit Auth is unavailable") from None
 
 
-@router.post("/auth/devkit/link", status_code=204)
+@router.post("/auth/devkit/link", dependencies=[Depends(require_local_auth)], status_code=204)
 async def link_devkit_auth(
     payload: DevKitAuthRequest,
     user: Annotated[UserView, Depends(current_user)],
@@ -270,7 +281,7 @@ async def login_devkit_auth(
     return _auth_response(user)
 
 
-@router.post("/auth/email-code", response_model=EmailCodeResponse)
+@router.post("/auth/email-code", dependencies=[Depends(require_local_auth)], response_model=EmailCodeResponse)
 async def send_email_code(
     payload: EmailCodeRequest, request: Request, db: Store = Depends(get_store),
 ) -> EmailCodeResponse:
@@ -315,7 +326,7 @@ async def send_email_code(
     return EmailCodeResponse(serverTime=utc_now())
 
 
-@router.put("/auth/me/email", response_model=AuthMeResponse)
+@router.put("/auth/me/email", dependencies=[Depends(require_local_auth)], response_model=AuthMeResponse)
 async def bind_email(
     payload: BindEmailRequest, user: UserView = Depends(current_user), db: Store = Depends(get_store),
 ) -> AuthMeResponse:
@@ -329,7 +340,7 @@ async def bind_email(
     return _me_response(updated)
 
 
-@router.put("/auth/me/profile", response_model=AuthMeResponse)
+@router.put("/auth/me/profile", dependencies=[Depends(require_local_auth)], response_model=AuthMeResponse)
 async def update_profile(
     payload: UpdateProfileRequest, user: UserView = Depends(current_user), db: Store = Depends(get_store),
 ) -> AuthMeResponse:
@@ -340,7 +351,7 @@ async def update_profile(
     return _me_response(updated)
 
 
-@router.get("/auth/oauth/start", response_model=OAuthStartResponse)
+@router.get("/auth/oauth/start", dependencies=[Depends(require_local_auth)], response_model=OAuthStartResponse)
 async def oauth_start(
     request: Request,
     response: Response,
@@ -376,6 +387,20 @@ async def feishu_mobile_start(
     query: Annotated[FeishuMobileStartQuery, Query()],
     db: Annotated[Store, Depends(get_store)],
 ) -> RedirectResponse:
+    devkit = configured_devkit_auth()
+    if devkit and devkit.managedOnly:
+        authorize_query = urlencode({
+            "response_type": "code",
+            "client_id": MOBILE_OAUTH_CLIENT.client_id,
+            "redirect_uri": MOBILE_OAUTH_CLIENT.redirect_uri,
+            "code_challenge_method": "S256",
+            **query.model_dump(),
+        })
+        return RedirectResponse(
+            f"{devkit.appOrigin}/#/mobile-oauth?{authorize_query}",
+            status_code=302,
+            headers={"Cache-Control": "no-store"},
+        )
     config = await db.get_oauth_provider_config()
     if not is_feishu(config) or not oauth_enabled(config):
         raise HTTPException(status_code=404, detail="Feishu login is not configured")
@@ -394,7 +419,7 @@ async def feishu_mobile_start(
     return response
 
 
-@router.get("/auth/oauth/callback")
+@router.get("/auth/oauth/callback", dependencies=[Depends(require_local_auth)])
 async def oauth_callback(
     request: Request,
     code: str | None = None,
@@ -536,7 +561,7 @@ async def _oauth_callback_result(
     )
 
 
-@router.post("/auth/oauth/finalize", response_model=OAuthFinalizeResponse)
+@router.post("/auth/oauth/finalize", dependencies=[Depends(require_local_auth)], response_model=OAuthFinalizeResponse)
 async def oauth_finalize(
     payload: OAuthFinalizeRequest,
     db: Store = Depends(get_store),
@@ -590,7 +615,7 @@ AVATAR_MAX_LENGTH = 256 * 1024
 AVATAR_DATA_URL_RE = re.compile(r"^data:image/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$")
 
 
-@router.put("/auth/me/avatar", response_model=AuthMeResponse)
+@router.put("/auth/me/avatar", dependencies=[Depends(require_local_auth)], response_model=AuthMeResponse)
 async def update_avatar(
     payload: UpdateAvatarRequest,
     user: UserView = Depends(current_user),
@@ -608,7 +633,7 @@ async def update_avatar(
     return _me_response(updated)
 
 
-@router.delete("/auth/me/avatar", response_model=AuthMeResponse)
+@router.delete("/auth/me/avatar", dependencies=[Depends(require_local_auth)], response_model=AuthMeResponse)
 async def clear_avatar(
     user: UserView = Depends(current_user),
     db: Store = Depends(get_store),
@@ -617,7 +642,7 @@ async def clear_avatar(
     return _me_response(updated)
 
 
-@router.post("/auth/change-password", status_code=204)
+@router.post("/auth/change-password", dependencies=[Depends(require_local_auth)], status_code=204)
 async def change_password(
     payload: ChangePasswordRequest,
     request: Request,

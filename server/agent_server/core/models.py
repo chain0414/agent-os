@@ -265,6 +265,7 @@ class AuthMeResponse(BaseModel):
 class DevKitPublicAuthConfig(BaseModel):
     apiUrl: str
     publishableKey: str
+    managedOnly: bool = False
 
 
 class AuthConfigResponse(BaseModel):

@@ -17,12 +17,15 @@ import { LoadingState } from "@/components/loading-state"
 import { AnnouncementGate } from "@/components/announcements/announcement-gate"
 
 function AuthRouterInner() {
-  const { screen, loading, isAuthenticated } = useAuth()
+  const { screen, loading, isAuthenticated, devkit } = useAuth()
 
   if (loading) {
     return (
       <LoadingState className="min-h-screen bg-background" />
     )
+  }
+  if (devkit?.managedOnly && ["bootstrap", "register", "forgot-password", "oauth-new-user", "oauth-link-existing"].includes(screen)) {
+    return isAuthenticated ? <Demo /> : <LoginScreen />
   }
   if (screen === "bootstrap") return <BootstrapScreen />
   if (screen === "app") return isAuthenticated ? <Demo /> : <LoginScreen />

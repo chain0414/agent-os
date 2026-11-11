@@ -103,7 +103,7 @@ struct ServiceEntryView: View {
                 SecureField("Password", text: $password, prompt: Text(verbatim: ""))
                     .textContentType(.password)
                     .submitLabel(.go)
-                    .onSubmit { startLogin(.password) }
+                    .onSubmit { startLogin(primaryLoginMethod) }
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel(Text("Password"))
                     .accessibilityIdentifier("auth.password")
@@ -132,15 +132,15 @@ struct ServiceEntryView: View {
         VStack(spacing: 20) {
             AppGlassButton(
                 String(localized: "Log In"),
-                style: canSubmitPassword || loginMethod == .password ? .prominent : .regular,
-                isLoading: loginMethod == .password,
+                style: canSubmitPassword || loginMethod == primaryLoginMethod ? .prominent : .regular,
+                isLoading: loginMethod == primaryLoginMethod,
                 disabled: !canSubmitPassword,
             ) {
-                startLogin(.password)
+                startLogin(primaryLoginMethod)
             }
             .accessibilityIdentifier("auth.sign-in")
 
-            if devkit != nil {
+            if devkit != nil && devkit?.managedOnly != true {
                 AppGlassButton(
                     String(localized: "Sign in with DevKit"),
                     style: .regular,
@@ -225,6 +225,10 @@ struct ServiceEntryView: View {
         guard startsFeishuAfterDismiss else { return }
         startsFeishuAfterDismiss = false
         startLogin(.feishu)
+    }
+
+    private var primaryLoginMethod: LoginMethod {
+        devkit?.managedOnly == true ? .devkit : .password
     }
 
     private var canSubmitPassword: Bool {

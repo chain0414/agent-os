@@ -33,6 +33,16 @@ export function isAdminServiceSection(section: AdminSection): section is AdminSe
   return (adminServiceSections as readonly string[]).includes(section)
 }
 
+export function isAdminSectionAvailable(section: AdminSection, managedOnly: boolean): boolean {
+  return !managedOnly || (
+    !isAdminDataSection(section) &&
+    section !== "team" &&
+    section !== "service-general" &&
+    section !== "service-auth" &&
+    section !== "service-email"
+  )
+}
+
 /** The service page a `service-*` section shows: `service-auth` -> `auth`. */
 export type ServicePageKey = "general" | "auth" | "email" | "info"
 

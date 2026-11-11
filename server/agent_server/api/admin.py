@@ -12,7 +12,7 @@ from agent_server.core.models import (
     UserView,
 )
 from agent_server.core.utc import utc_now
-from agent_server.deps import get_store, require_admin
+from agent_server.deps import get_store, require_admin, require_local_auth
 from agent_server.infra.repositories.facade import Store
 from agent_server.services.email_delivery import (
     get_email_settings,
@@ -26,12 +26,12 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 # --- instance settings -------------------------------------------------------
 
 
-@router.get("/settings", response_model=InstanceSettingsView)
+@router.get("/settings", dependencies=[Depends(require_local_auth)], response_model=InstanceSettingsView)
 async def get_settings(db: Store = Depends(get_store)) -> InstanceSettingsView:
     return await _settings_view(db)
 
 
-@router.patch("/settings", response_model=InstanceSettingsView)
+@router.patch("/settings", dependencies=[Depends(require_local_auth)], response_model=InstanceSettingsView)
 async def update_settings(
     payload: InstanceSettingsUpdateRequest,
     db: Store = Depends(get_store),
@@ -55,7 +55,7 @@ async def update_settings(
 # --- user management ---------------------------------------------------------
 
 
-@router.get("/users", response_model=AdminUserListResponse)
+@router.get("/users", dependencies=[Depends(require_local_auth)], response_model=AdminUserListResponse)
 async def list_users(
     limit: int | None = Query(default=None, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
@@ -69,7 +69,7 @@ async def list_users(
     )
 
 
-@router.post("/users", response_model=UserView, status_code=201)
+@router.post("/users", dependencies=[Depends(require_local_auth)], response_model=UserView, status_code=201)
 async def create_user(
     payload: AdminUserCreateRequest,
     db: Store = Depends(get_store),
@@ -92,7 +92,7 @@ async def create_user(
         raise HTTPException(status_code=422, detail=detail) from exc
 
 
-@router.patch("/users/{user_id}", response_model=UserView)
+@router.patch("/users/{user_id}", dependencies=[Depends(require_local_auth)], response_model=UserView)
 async def update_user(
     user_id: str,
     payload: AdminUserUpdateRequest,
@@ -129,7 +129,7 @@ async def update_user(
     return updated or await _safe_get_user(db, target)
 
 
-@router.delete("/users/{user_id}", status_code=204)
+@router.delete("/users/{user_id}", dependencies=[Depends(require_local_auth)], status_code=204)
 async def delete_user(
     user_id: str,
     db: Store = Depends(get_store),

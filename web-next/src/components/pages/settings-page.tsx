@@ -65,6 +65,7 @@ function AccountTab({
 }) {
   const t = useTranslations("pages.settings")
   const { devkit, devkitFeishuAvailable } = useAuth()
+  const managedOnly = devkit?.managedOnly === true
   const [passwordOpen, setPasswordOpen] = React.useState(false)
   const [avatarOpen, setAvatarOpen] = React.useState(false)
   const [clearingAvatar, setClearingAvatar] = React.useState(false)
@@ -95,18 +96,20 @@ function AccountTab({
               <p className="text-sm capitalize text-muted-foreground">{me.role}</p>
             </div>
           </div>
-          <div className="flex max-w-full flex-wrap items-center gap-2">
-            {me.avatar ? (
-              <Button type="button" variant="outline" size="sm" onClick={clearAvatar} disabled={clearingAvatar}>
-                {clearingAvatar ? <Spinner /> : <Trash2 data-icon="inline-start" />}
-                {t("removeAvatar")}
-              </Button>
+          {!managedOnly ? (
+            <div className="flex max-w-full flex-wrap items-center gap-2">
+              {me.avatar ? (
+                <Button type="button" variant="outline" size="sm" onClick={clearAvatar} disabled={clearingAvatar}>
+                  {clearingAvatar ? <Spinner /> : <Trash2 data-icon="inline-start" />}
+                  {t("removeAvatar")}
+                </Button>
             ) : null}
             <Button type="button" variant="outline" size="sm" onClick={() => setAvatarOpen(true)}>
               <Camera data-icon="inline-start" />
               {t("changeAvatar")}
             </Button>
           </div>
+          ) : null}
         </div>
         <Separator />
         <dl className="divide-y divide-border">
@@ -129,28 +132,32 @@ function AccountTab({
         </dl>
       </SettingsSection>
 
-      <SettingsSection
-        title={t("password")}
-        description={t("passwordDescription")}
-        action={
-          <Button type="button" variant="destructive" size="sm" onClick={() => setPasswordOpen(true)}>
-            <RotateCw data-icon="inline-start" />
-            {t("resetPassword")}
-          </Button>
-        }
-      />
+      {!managedOnly ? (
+        <>
+          <SettingsSection
+            title={t("password")}
+            description={t("passwordDescription")}
+            action={
+              <Button type="button" variant="destructive" size="sm" onClick={() => setPasswordOpen(true)}>
+                <RotateCw data-icon="inline-start" />
+                {t("resetPassword")}
+              </Button>
+            }
+          />
 
-      <AccountProfileCard me={me} token={token} onMeChange={onMeChange} />
-      {devkit ? <DevKitAccountLink config={devkit} token={token} feishuAvailable={devkitFeishuAvailable} /> : null}
+          <AccountProfileCard me={me} token={token} onMeChange={onMeChange} />
+          {devkit ? <DevKitAccountLink config={devkit} token={token} feishuAvailable={devkitFeishuAvailable} /> : null}
 
-      <ResetPasswordDialog open={passwordOpen} token={token} onOpenChange={setPasswordOpen} />
-      <AvatarCropDialog
-        open={avatarOpen}
-        token={token}
-        userId={accountDisplayName(me)}
-        onMeChange={onMeChange}
-        onOpenChange={setAvatarOpen}
-      />
+          <ResetPasswordDialog open={passwordOpen} token={token} onOpenChange={setPasswordOpen} />
+          <AvatarCropDialog
+            open={avatarOpen}
+            token={token}
+            userId={accountDisplayName(me)}
+            onMeChange={onMeChange}
+            onOpenChange={setAvatarOpen}
+          />
+        </>
+      ) : null}
     </div>
   )
 }

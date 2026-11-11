@@ -3,6 +3,7 @@ export type UserRole = "admin" | "member";
 export type DevKitAuthConfig = {
   apiUrl: string;
   publishableKey: string;
+  managedOnly?: boolean;
 };
 
 export interface DevKitBrowserClient {

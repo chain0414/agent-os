@@ -1292,6 +1292,8 @@
       "account": "DevKit account",
       "link": "Link account",
       "signIn": "Sign in with DevKit",
+      "managedFeishuSignIn": "Sign in with Feishu",
+      "managedFeishuSignInFailed": "Feishu sign-in failed. Please try again.",
       "feishuSignIn": "Sign in with Feishu via DevKit",
       "feishuSignInFailed": "Feishu sign-in failed. Make sure Feishu is linked in account settings.",
       "linkDescription": "Sign in to DevKit to link it to your current Agent OS account.",

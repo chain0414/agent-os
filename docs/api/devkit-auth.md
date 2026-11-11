@@ -1,6 +1,6 @@
 # DevKit Project Auth 接入
 
-Agent OS 可以把现有业务账号与指定 DevKit 项目的账号绑定。DevKit 负责认证和账号管理，Agent OS 仍按原业务用户 ID 判断角色、设备和会话权限。
+DevKit 托管的 Agent OS 实例由指定的 DevKit 项目负责认证和账号管理。Agent OS 按原业务用户 ID 判断角色、设备和会话权限。自托管实例也可使用混合模式。
 
 ## 接口
 
@@ -10,7 +10,11 @@ Agent OS 可以把现有业务账号与指定 DevKit 项目的账号绑定。Dev
 
 Agent OS 向 DevKit 的 `/api/runtime/v1/auth/session-metadata` 验证项目、环境、认证域、签发者、受众和会话状态。绑定使用认证域和稳定的主体 ID。DevKit 密码由客户端直接交给 DevKit。应用关闭接入或 DevKit 停用账号时，新的 DevKit 登录会被拒绝。已经签发的 Agent OS 会话沿用 Agent OS 的有效期和停用规则。
 
-## 配置及上线验证
+## DevKit 托管模式
+
+在 `AGENT_SERVER_DEVKIT_AUTH` 中设置 `"managedOnly": true`，由 DevKit 提供邮箱和飞书登录及用户管理。`GET /api/v2/auth/config` 在 `devkit.managedOnly` 返回该标志。启用前由运营方导入现有用户身份，并将 DevKit 主体对应到原业务用户 ID。启用后应用登录页使用 DevKit，停用 Agent OS 的本地登录、注册、密码恢复、身份绑定、用户管理和用户统计接口。应用继续按原业务用户 ID 授权已有设备和会话。原生应用的浏览器授权和扫码登录继续使用已有交换接口。配置无法解析时，登录配置与本地身份入口返回 503。移除配置变量可恢复独立运行模式。
+
+## 自托管混合接入配置及验证
 
 通过 Server 环境变量 `AGENT_SERVER_DEVKIT_AUTH` 配置 JSON，字段为 `apiUrl`、`appOrigin`、`publishableKey`、`projectId`、`environmentId`、`realmId`、`issuer`、`audience`。使用 `devkit identity config --project agent-os --json` 核对身份范围。将实际网页来源加入同一 DevKit 项目的允许来源。若使用邮箱注册，将该来源下的 `/auth/devkit/verify` 加入 DevKit 邮箱验证回跳白名单并确认邮件送达。启用前应用数据库迁移。
 
