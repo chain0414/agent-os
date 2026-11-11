@@ -95,7 +95,23 @@ import Testing
         visibility(&state, end: false)
         #expect(state.pendingBottomRequest != nil, "Fall back if the native anchor missed the tail")
         visibility(&state, end: true)
+        state.recoverUnmeasuredOpeningTail(generation: state.navigationGeneration)
         #expect(state.pendingBottomRequest == nil)
+    }
+
+    @Test func unmeasuredNativeTailCanRecoverUnlessTheReaderHasMoved() {
+        var state = TimelineScrollState()
+        state.geometryChanged(viewport())
+        state.open(anchoredAtTail: true)
+        let initial = state.navigationGeneration
+
+        state.recoverUnmeasuredOpeningTail(generation: initial)
+        #expect(state.pendingBottomRequest != nil)
+        #expect(state.returningToBottom)
+        state.browseHistory()
+        state.recoverUnmeasuredOpeningTail(generation: initial)
+        #expect(state.pendingBottomRequest == nil)
+        #expect(state.mode == .reading)
     }
 
     @Test func offsetCallbacksCannotRestartAnAnimationForUnchangedLayout() throws {

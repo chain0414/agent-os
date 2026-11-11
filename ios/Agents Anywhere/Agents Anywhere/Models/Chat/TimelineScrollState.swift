@@ -46,6 +46,12 @@ nonisolated struct TimelineScrollState: Equatable {
         }
     }
 
+    mutating func recoverUnmeasuredOpeningTail(generation: Int) {
+        guard hasOpened, !navigationIsSuspended, mode == .following, !userIsScrolling,
+              navigationGeneration == generation, !tail.isMeasured, !tail.isAtBottom else { return }
+        requestBottom()
+    }
+
     mutating func requestBottom() {
         mode = .returning
         awaitsUserScrollSettlement = false

@@ -194,6 +194,14 @@ struct ChatTimelineView: View {
                     if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
                 }
             }
+            .task(id: navigationIsSuspended) {
+                guard !navigationIsSuspended, anchoredAtTail, scrolling.navigationGeneration == 0 else { return }
+                // A lazy stack can miss its first native target and never mount
+                // either visibility marker. Give layout a chance before recovering.
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                guard !Task.isCancelled else { return }
+                scrolling.recoverUnmeasuredOpeningTail(generation: 0)
+            }
             .task(id: ReadingRestoration(width: readingWidth, ready: model.isOpeningReady)) {
                 guard model.isOpeningReady, readingWidth > 0 else { return }
                 let width = readingWidth
