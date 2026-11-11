@@ -5,6 +5,35 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct SessionRepositoryTests {
+    @Test func openingPreviewIsReadableWhileHistoryIsPending() async throws {
+        let http = TestHTTPTransport(), history = TestGate()
+        let repo = repository(transport: http)
+        defer { history.release(); repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                return Data(#"{"text":"First paragraph","truncated":true}"#.utf8)
+            }
+            if call.path.hasSuffix("/timeline") { await history.wait() }
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        let opening = Task { await chat.prepareOpening(summary: summary, showPreview: true) }
+        defer { opening.cancel() }
+        try await eventually { chat.openingPreview?.text == "First paragraph" && http.count("/timeline") == 1 }
+        #expect(repo.cached(sessionId: summary.id) == nil)
+        #expect(!chat.isOpeningReady)
+        history.release()
+        await opening.value
+        #expect(chat.isOpeningReady && chat.openingPreview == nil)
+        #expect(chat.timeline.rows.last?.id == "item")
+        #expect(repo.cached(sessionId: summary.id)?.cursor == "seq:10")
+
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(http.count("/opening-preview") == 1)
+    }
+
     @Test func dashboardOpeningPublishesHistoryBeforeSlowMetadata() async throws {
         let http = TestHTTPTransport(), metadata = TestGate()
         let repo = repository(transport: http)

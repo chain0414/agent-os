@@ -13,6 +13,7 @@ protocol V2SessionAPIProtocol {
     func archive(sessionIds: [V2SessionID]) async throws -> V2SessionBulkActionResponse
     func unarchive(sessionIds: [V2SessionID]) async throws -> V2SessionBulkActionResponse
     func snapshot(sessionId: V2SessionID, limit: Int) async throws -> V2SessionSnapshot
+    func openingPreview(sessionId: V2SessionID) async throws -> V2SessionOpeningPreview
     func latestTimeline(sessionId: V2SessionID, limit: Int) async throws -> V2SessionTimelinePage
     func timelineChanges(sessionId: V2SessionID, afterSeq: Int, limit: Int) async throws -> V2SessionTimelinePage
     func timelineHistory(sessionId: V2SessionID, beforeOrderSeq: Int, limit: Int) async throws -> V2SessionTimelinePage
@@ -89,6 +90,11 @@ struct V2SessionAPI: V2SessionAPIProtocol {
             queryItems: [URLQueryItem(name: "limit", value: String(limit))]
         )
         return try await transport.send(request)
+    }
+
+    func openingPreview(sessionId: V2SessionID) async throws -> V2SessionOpeningPreview {
+        try await transport.send(HTTPRequest<EmptyRequestBody, V2SessionOpeningPreview>(
+            method: .get, path: sessionPath(sessionId, suffix: "opening-preview")))
     }
 
     func latestTimeline(sessionId: V2SessionID, limit: Int) async throws -> V2SessionTimelinePage {

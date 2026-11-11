@@ -171,7 +171,7 @@ struct SessionChatView: View, Equatable {
         }
         .task(id: hasStartedLoading) {
             guard hasStartedLoading else { return }
-            await model.prepareOpening(summary: sessionSummary)
+            await model.prepareOpening(summary: sessionSummary, showPreview: true)
         }
         .task(id: model.isOpeningReady) {
             // A failed first read stays at the retry action. A successful
@@ -223,17 +223,36 @@ struct SessionChatView: View, Equatable {
     private var openingMask: some View {
         ZStack {
             Color(uiColor: .systemBackground)
-            VStack(spacing: 12) {
-                if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
-                    Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button(String(localized: "重试")) { Task { await model.prepareOpening(summary: sessionSummary) } }
-                } else {
-                    ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
+            if let preview = model.openingPreview, let text = preview.text, !text.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(verbatim: preview.truncated ? text + "…" : text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                        openingFeedback
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ChatPageContentColumn(horizontalInset: nil))
+                    .padding(.vertical, 24)
                 }
+            } else {
+                openingFeedback.padding(24).frame(maxWidth: 320)
             }
-            .padding(24).frame(maxWidth: 320)
         }
         .transition(.identity)
+    }
+
+    private var openingFeedback: some View {
+        VStack(spacing: 12) {
+            if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
+                Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button(String(localized: "重试")) {
+                    Task { await model.prepareOpening(summary: sessionSummary, showPreview: true) }
+                }
+            } else {
+                ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
+            }
+        }
     }
 
     private var takeoverPill: some View {

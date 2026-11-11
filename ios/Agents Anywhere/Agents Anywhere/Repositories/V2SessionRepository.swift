@@ -57,13 +57,14 @@ final class V2SessionRepository {
     }
 
     /// Returns cached durable content immediately. Observe to keep live facts fresh.
-    func load(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
+    func load(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
+              timeout: Duration? = nil) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
         await restoreCachedSession(id: sessionId)
         try requireCurrent(entry)
         if let data = entry.projection?.data { return data }
         try requireNetwork()
-        return try await hydrate(entry, summary: summary)
+        return try await hydrate(entry, summary: summary, timeout: timeout)
     }
 
     /// Warm at most two sidebar sessions. A tap can join the same read.
@@ -82,11 +83,19 @@ final class V2SessionRepository {
         !suspended && network.allowsSessionPrefetch
     }
 
+    func openingPreviewIfUncached(sessionId: V2SessionID) async -> V2SessionOpeningPreview? {
+        await restoreCachedSession(id: sessionId)
+        guard !Task.isCancelled, entries[sessionId]?.projection == nil,
+              network.availability != .offline else { return nil }
+        return try? await detail.openingPreview(sessionId: sessionId)
+    }
+
     /// A page visit retains up to 100 cached records, including an older window.
     /// Explicit history loads may then accumulate additional 100-record pages.
-    func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
+    func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
+              timeout: Duration? = nil) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
-        _ = try await load(sessionId: sessionId, summary: summary)
+        _ = try await load(sessionId: sessionId, summary: summary, timeout: timeout)
         try Task.checkCancellation()
         try requireCurrent(entry)
         entry.readVersion += 1
@@ -437,7 +446,8 @@ final class V2SessionRepository {
         for entry in old { dispose(entry) }
     }
 
-    private func hydrate(_ entry: Entry, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
+    private func hydrate(_ entry: Entry, summary: V2SessionMeta? = nil,
+                         timeout: Duration? = nil) async throws -> V2SessionData {
         if let task = entry.loadTask { return try await task.value }
         entry.readVersion += 1
         entry.historyTask?.cancel()
@@ -449,7 +459,7 @@ final class V2SessionRepository {
                 if entry.readVersion == version { entry.loadTask = nil }
                 evict()
             }
-            let data = try await detail.loadPersisted(sessionId: entry.id, summary: seed)
+            let data = try await detail.loadPersisted(sessionId: entry.id, summary: seed, timeout: timeout)
             try requireCurrent(entry, version: version)
             entry.projection = V2SessionProjection(data: data, maximumItems: policy.maximumTimelineItems)
             entry.needsMetadataRefresh = seed != nil

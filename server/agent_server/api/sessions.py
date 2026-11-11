@@ -66,6 +66,7 @@ from agent_server.core.protocol import (
     ProtocolEventRecoveryResponse,
     ProtocolModelCatalogResponse,
     ProtocolPermissionCatalogResponse,
+    ProtocolSessionOpeningPreview,
     ProtocolSessionSnapshotResponse,
     ProtocolTimelineResponse,
     ProtocolTimelineSnapshot,
@@ -830,6 +831,25 @@ async def patch_session_selections(
         state=state,
         connectorResult=connector_result,
         serverTime=utc_now(),
+    )
+
+
+@router.get("/{session_id}/opening-preview", response_model=ProtocolSessionOpeningPreview)
+async def session_opening_preview(
+    session_id: str,
+    user_id: str = Depends(current_user_id),
+    db: Store = Depends(get_store),
+) -> ProtocolSessionOpeningPreview:
+    try:
+        await db.get_session(session_id, user_id=user_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    # JSON can expand a Unicode character to six bytes for escaped controls.
+    limit = 1200
+    prefix = await db.timeline.latest_message_prefix(session_id, length=limit + 1)
+    return ProtocolSessionOpeningPreview(
+        text=prefix[:limit] if prefix is not None else None,
+        truncated=prefix is not None and len(prefix) > limit,
     )
 
 

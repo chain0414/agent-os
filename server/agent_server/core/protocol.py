@@ -214,6 +214,11 @@ class ProtocolTimelineResponse(ProtocolWireModel):
     serverTime: str
 
 
+class ProtocolSessionOpeningPreview(ProtocolWireModel):
+    text: str | None
+    truncated: bool
+
+
 class ProtocolSessionSnapshotResponse(ProtocolWireModel):
     session: SessionView
     state: SessionRuntimeState | None = None

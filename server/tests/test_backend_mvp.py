@@ -2838,6 +2838,59 @@ def test_session_meta_endpoint_reads_and_patches_server_owned_metadata(tmp_path)
     assert patched.json()["session"]["pinned"] is True
 
 
+def test_opening_preview_returns_only_bounded_authorized_message_text(tmp_path):
+    client = make_client(tmp_path)
+    _, connector_token, session_id, headers = create_connector_and_session(client)
+    path = f"/sessions/{session_id}/opening-preview"
+    assert client.get(path, headers=headers).json() == {"text": None, "truncated": False}
+    assert client.get(path, headers=auth_headers(client, user_id="other")).status_code == 404
+
+    body = "正文" + "\x01" * 1500
+    with client.websocket_connect(
+        "/connector/ws",
+        headers={"Authorization": f"Bearer {connector_token}"},
+    ) as ws:
+        for sequence, kind, status, content in [
+            (1, "message", "done", body),
+            (2, "message", "done", "   "),
+            (3, "tool", "done", "large tool output"),
+        ]:
+            ws.send_json(
+                {
+                    "type": "notification",
+                    "method": "timeline.itemUpsert",
+                    "params": {
+                        "sessionId": session_id,
+                        "item": {
+                            "id": f"preview-item-{sequence}",
+                            "sessionId": session_id,
+                            "type": kind,
+                            "status": status,
+                            "role": "assistant",
+                            "content": {"text": content},
+                            "source": {
+                                "runtime": "codex",
+                                "sessionId": "thr_1",
+                                "itemId": f"item-{sequence}",
+                            },
+                            "orderSeq": sequence,
+                            "revision": 1,
+                            "contentHash": f"sha256:preview-{sequence}",
+                        },
+                    },
+                }
+            )
+        def all_items_are_durable():
+            page = client.get(f"/sessions/{session_id}/timeline", headers=headers)
+            return len(page.json()["items"]) == 3
+
+        assert wait_for(all_items_are_durable)
+    result = client.get(path, headers=headers)
+    assert result.status_code == 200
+    assert len(result.content) <= 8192
+    assert result.json() == {"text": body[:1200], "truncated": True}
+
+
 def test_session_timeline_endpoint_reads_durable_timeline_only(tmp_path):
     client = make_client(tmp_path)
     _, access_token, session_id, headers = create_connector_and_session(client)

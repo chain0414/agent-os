@@ -6,8 +6,17 @@ struct V2SessionDetailService {
     let realtimeAPI: any V2RealtimeAPIProtocol
     var openingTimeout: Duration = .seconds(8)
 
-    func loadPersisted(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
-        try await withOpeningDeadline { try await readPersisted(sessionId: sessionId, summary: summary) }
+    func openingPreview(sessionId: V2SessionID) async throws -> V2SessionOpeningPreview {
+        try await withOpeningDeadline(timeout: .milliseconds(1400)) {
+            try await sessionAPI.openingPreview(sessionId: sessionId)
+        }
+    }
+
+    func loadPersisted(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
+                       timeout: Duration? = nil) async throws -> V2SessionData {
+        try await withOpeningDeadline(timeout: timeout) {
+            try await readPersisted(sessionId: sessionId, summary: summary)
+        }
     }
 
     func latestItemsWithDeadline(sessionId: V2SessionID, limit: Int) async throws -> V2SessionTimelinePage {
@@ -15,11 +24,12 @@ struct V2SessionDetailService {
     }
 
     private func withOpeningDeadline<Value: Sendable>(
+        timeout: Duration? = nil,
         _ read: @escaping @MainActor () async throws -> Value
     ) async throws -> Value {
         try await withThrowingTaskGroup(of: Value.self) { group in
             group.addTask { @MainActor in try await read() }
-            let timeout = openingTimeout
+            let timeout = timeout ?? openingTimeout
             group.addTask {
                 try await Task.sleep(for: timeout)
                 throw URLError(.timedOut)
