@@ -18,8 +18,6 @@
 
 ### iOS
 
-- 点击会话后立即读取已有历史，无缓存时优先显示最近一条已同步消息，历史补齐慢或失败时保留已显示的正文，首次加载超时仍可重试。（[#3](https://github.com/chain0414/agent-os/pull/3)）
-
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 首页可用邮箱密码登录 `os.begrow.ai` 并进入工作空间，表单有常驻标签并支持用键盘切到密码，也可通过「其他登录方式」选择飞书登录，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)、[#4](https://github.com/chain0414/agent-os/pull/4)）
@@ -68,6 +66,16 @@
 
 - Codex 版本检测不再阻塞发现和配置验证期间的心跳与本机控制，并避免 Windows 上版本检测超时后卡住。（[#522](https://github.com/anywhere-labs/Agents-Anywhere/pull/522)）
 - Claude 工具结果中的内联图片改为显示类型和大小摘要，避免含大量截图的会话因请求过大而同步失败。（[#548](https://github.com/anywhere-labs/Agents-Anywhere/pull/548)）
+
+## 2.5.1（2026-11-11）
+
+### 会话创建与消息交付
+
+- 支持压缩的客户端在弱网下读取较大的会话历史时，需要下载的数据更少。（[#6](https://github.com/chain0414/agent-os/pull/6)）
+
+### iOS
+
+- 点击会话后立即读取已有历史，无缓存时优先显示最近一条已同步消息，历史补齐慢或失败时保留已显示的正文，首次加载超时仍可重试。（[#3](https://github.com/chain0414/agent-os/pull/3)、[#6](https://github.com/chain0414/agent-os/pull/6)）
 
 ## 2.1.0（2026-10-27）
 
