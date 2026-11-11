@@ -67,6 +67,32 @@ import Testing
         #expect(restored.session(id: "session").draft == "Keep my draft")
         restored.reset(); first.reset(); await store.close(removing: true)
     }
+
+    @Test func openingShowsAnOlderArchiveBeforeFetchingNewerHistory() async throws {
+        let url = location()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = V2LocalStore(directory: url)
+        let http = TestHTTPTransport()
+        let repository = repo(http, local: store)
+        let session = repository.session(id: "session")
+        var older = V2SessionData(snapshot: try snapshot(items: [itemObject(id: "saved")]))
+        older.hasNewerItems = true
+        await store.saveSession(V2SessionArchive(data: older, model: session))
+        let chat = SessionChatModel(session: session, repository: repository,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+
+        await chat.prepareOpening()
+        #expect(chat.isOpeningReady)
+        #expect(chat.timeline.rows.map(\.id) == ["saved"])
+        #expect(session.hasNewerItems && http.calls.isEmpty)
+
+        await session.loadLatest(shouldApply: { false })
+        #expect(session.hasNewerItems && repository.cached(sessionId: "session")?.items.map(\.id) == ["saved"])
+        await session.loadLatest()
+        #expect(!session.hasNewerItems && repository.cached(sessionId: "session")?.items.map(\.id) == ["item"])
+        repository.reset()
+        await store.close(removing: true)
+    }
     @Test func corruptionEvictionAndSignedOutWritesDoNotTrapTheReader() async throws {
         let url = location(); defer { try? FileManager.default.removeItem(at: url) }
         let store = V2LocalStore(directory: url, maximumSessions: 1)

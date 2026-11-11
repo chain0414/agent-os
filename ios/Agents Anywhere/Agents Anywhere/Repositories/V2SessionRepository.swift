@@ -82,7 +82,7 @@ final class V2SessionRepository {
         !suspended && network.allowsSessionPrefetch
     }
 
-    /// A page visit starts with the latest page and retains up to 100 cached records.
+    /// A page visit retains up to 100 cached records, including an older window.
     /// Explicit history loads may then accumulate additional 100-record pages.
     func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
@@ -92,12 +92,7 @@ final class V2SessionRepository {
         entry.readVersion += 1
         entry.historyTask?.cancel()
         entry.historyTask = nil
-        // Trim before a possible latest-page request so an offline fallback
-        // also stays bounded and cannot remount the entire cached history.
         if entry.projection?.limitToLatest(100) == true { emit(entry) }
-        if entry.projection?.data.hasNewerItems == true {
-            return try await loadLatest(sessionId: sessionId, limit: 100)
-        }
         return entry.projection!.data
     }
 
@@ -220,7 +215,8 @@ final class V2SessionRepository {
         return try await task.value
     }
 
-    func loadLatest(sessionId: V2SessionID, limit: Int = 100) async throws -> V2SessionData {
+    func loadLatest(sessionId: V2SessionID, limit: Int = 100,
+                    shouldApply: () -> Bool = { true }) async throws -> V2SessionData {
         try requireNetwork()
         _ = try await load(sessionId: sessionId)
         let entry = entry(for: sessionId)
@@ -228,8 +224,9 @@ final class V2SessionRepository {
         entry.historyTask?.cancel()
         entry.historyTask = nil
         let version = entry.readVersion
-        let page = try await detail.latestItems(sessionId: sessionId, limit: limit)
+        let page = try await detail.latestItemsWithDeadline(sessionId: sessionId, limit: limit)
         try requireCurrent(entry, version: version)
+        guard shouldApply() else { return entry.projection!.data }
         entry.projection?.applyLatest(page)
         emit(entry)
         return entry.projection!.data

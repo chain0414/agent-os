@@ -22,7 +22,7 @@ struct ChatTimelineView: View {
     @State private var olderPromptVisible = false
     @State private var olderLoadRequest: Int?
     @State private var latestPromptVisible = false
-    @State private var latestLoadRequest: Int?
+    @State private var latestLoadRequest: LatestLoadRequest?
     @State private var nativePhase = TimelineScrollState.Phase.idle
     /// The return pill would sit on top of the keyboard while typing.
     @State private var keyboardIsVisible = false
@@ -64,7 +64,7 @@ struct ChatTimelineView: View {
                     latestPullReady: latestPull.isReady, isLoadingLatest: latestLoadRequest != nil,
                     olderPullReady: olderPull.isReady, isLoadingOlder: olderLoadRequest != nil,
                     keepsOlderPrompt: hasRequestedOlder, historyAnchor: historyPosition?.origin,
-                    onLoadOlder: loadOlder, onLoadLatest: loadLatest,
+                    onLoadOlder: loadOlder, onLoadLatest: { loadLatest() },
                     onHistoryLayout: historyDidLayOut,
                     onPromptVisibility: { latestPromptVisible = $0 },
                     onOlderPromptVisibility: { olderPromptVisible = $0 },
@@ -197,6 +197,9 @@ struct ChatTimelineView: View {
                 if ready {
                     scrolling.open(interactionPresented: hasInteractions, anchoredAtTail: anchoredAtTail)
                     if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
+                    else if !navigationIsSuspended && model.session.network.availability != .offline {
+                        loadLatest(automatically: true)
+                    }
                 }
             }
             .task(id: openingViewportBeyondBottom && !navigationIsSuspended) {
@@ -286,11 +289,15 @@ struct ChatTimelineView: View {
                 historyPosition = nil; olderLoadRequest = nil
             }
             .task(id: latestLoadRequest) {
-                guard let generation = latestLoadRequest else { return }
-                await model.session.loadLatest()
+                guard let request = latestLoadRequest else { return }
+                await model.session.loadLatest {
+                    !request.automatic || (!navigationIsSuspended && scrolling.navigationGeneration == request.generation)
+                }
                 guard !Task.isCancelled else { return }
                 // A drag during the fetch must not be undone when it finishes.
-                if scrolling.navigationGeneration == generation { scrolling.requestBottom() }
+                if !model.session.hasNewerItems, scrolling.navigationGeneration == request.generation {
+                    scrolling.requestBottom()
+                }
                 latestLoadRequest = nil
             }
             if !keyboardIsVisible, scrolling.showsBottomButton() {
@@ -349,13 +356,18 @@ struct ChatTimelineView: View {
         let width: CGFloat
         let ready: Bool
     }
-    private func loadLatest() {
+    private struct LatestLoadRequest: Equatable {
+        let generation: Int
+        let automatic: Bool
+    }
+
+    private func loadLatest(automatically: Bool = false) {
         guard model.session.isValid, model.session.hasNewerItems,
               !model.session.isLoadingHistory, latestLoadRequest == nil, olderLoadRequest == nil else { return }
         olderPull.cancel(); latestPull.cancel()
         historyPosition?.cancelRestoration()
-        scrolling.requestBottom()
-        latestLoadRequest = scrolling.navigationGeneration
+        if !automatically { scrolling.requestBottom() }
+        latestLoadRequest = LatestLoadRequest(generation: scrolling.navigationGeneration, automatic: automatically)
     }
     private func scrollToBottom(_ command: TimelineScrollState.BottomCommand) {
         withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.28, dampingFraction: 1, blendDuration: 0.12),

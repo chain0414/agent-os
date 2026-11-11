@@ -7,10 +7,18 @@ struct V2SessionDetailService {
     var openingTimeout: Duration = .seconds(8)
 
     func loadPersisted(sessionId: V2SessionID, summary: V2SessionMeta? = nil) async throws -> V2SessionData {
-        try await withThrowingTaskGroup(of: V2SessionData.self) { group in
-            group.addTask { @MainActor in
-                try await readPersisted(sessionId: sessionId, summary: summary)
-            }
+        try await withOpeningDeadline { try await readPersisted(sessionId: sessionId, summary: summary) }
+    }
+
+    func latestItemsWithDeadline(sessionId: V2SessionID, limit: Int) async throws -> V2SessionTimelinePage {
+        try await withOpeningDeadline { try await latestItems(sessionId: sessionId, limit: limit) }
+    }
+
+    private func withOpeningDeadline<Value: Sendable>(
+        _ read: @escaping @MainActor () async throws -> Value
+    ) async throws -> Value {
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { @MainActor in try await read() }
             let timeout = openingTimeout
             group.addTask {
                 try await Task.sleep(for: timeout)

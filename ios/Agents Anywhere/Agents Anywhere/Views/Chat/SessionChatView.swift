@@ -171,9 +171,12 @@ struct SessionChatView: View, Equatable {
         }
         .task(id: hasStartedLoading) {
             guard hasStartedLoading else { return }
-            // Reattaching a loaded detail only resumes observation.
             await model.prepareOpening(summary: sessionSummary)
-            guard !Task.isCancelled else { return }
+        }
+        .task(id: model.isOpeningReady) {
+            // A failed first read stays at the retry action. A successful
+            // explicit retry starts observation through the same view lifecycle.
+            guard model.isOpeningReady else { return }
             await model.timeline.run(sessionID: session.id, repository: model.repository)
         }
         .sheet(item: $sheet) { destination in
@@ -214,9 +217,6 @@ struct SessionChatView: View, Equatable {
             // Each command failure is new, even when its text repeats a dismissed one.
             toasts.update(source: "command", failure: nil)
             toasts.update(source: "command", failure: feedback.map { V2ClientFailure(kind: .rejected, message: $0.message ?? "") }, title: feedback?.title)
-        }
-        .onChange(of: model.openingError, initial: true) { _, message in
-            toasts.update(source: "opening", failure: message.map { V2ClientFailure(kind: .unavailable, message: $0) })
         }
     }
 

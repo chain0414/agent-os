@@ -247,12 +247,13 @@ final class SessionChatModel {
         if !timeline.hasPresentedSnapshot { isOpeningPrepared = false }
         openingError = nil
         do {
-            // Both cold and cached visits begin with one latest page. Older
-            // records are added only by the user's explicit history requests.
+            // The timeline can display a cached window while it fetches newer records.
             _ = try await repository.open(sessionId: session.id, summary: summary)
         } catch {
             guard !Task.isCancelled else { return }
-            openingError = error.localizedDescription
+            openingError = (error as? URLError)?.code == .timedOut
+                ? String(localized: "加载消息超时，请重试。")
+                : error.localizedDescription
         }
         guard session.isValid, !Task.isCancelled else { return }
         if let data = repository.cached(sessionId: session.id) {
