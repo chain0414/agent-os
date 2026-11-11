@@ -298,12 +298,10 @@ import Testing
                 return try JSONSerialization.data(withJSONObject: ["ok": true,
                     "serverTime": "2026-10-30T00:00:00Z", "result": ["executionState": "completed"]])
             }
-            if call.path.hasSuffix("snapshot") {
-                var value = try fixtureObject("snapshot")
+            if call.path.hasSuffix("/meta") {
+                var value = try fixtureObject("session")
                 var metadata = value["session"] as! [String: Any]
                 metadata["takeover"] = takenOver; value["session"] = metadata
-                value["effectiveCapabilities"] = try capabilitySet()
-                value["notices"] = try notices()
                 return try JSONSerialization.data(withJSONObject: value)
             }
             if call.path.hasSuffix("capabilities") {

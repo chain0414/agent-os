@@ -1,7 +1,7 @@
 import Foundation
 
-/// Relative geometry for detecting layout changes and retaining history. It
-/// deliberately does not infer arrival or a target offset from native insets.
+/// Relative geometry for detecting layout changes and retaining history.
+/// Tail visibility normally determines arrival at the latest message.
 nonisolated struct TimelineViewport: Equatable {
     let contentHeight: CGFloat
     let visibleHeight: CGFloat
@@ -20,4 +20,12 @@ nonisolated struct TimelineViewport: Equatable {
         self.containerWidth = containerWidth
     }
     var isMeasured: Bool { visibleHeight > 0 }
+
+    var bottomOffset: CGFloat { max(-topInset, contentHeight - visibleHeight - topInset) }
+
+    // Lazy rows can shrink after SwiftUI resolves an initial target. A visible
+    // tail marker alone cannot distinguish the bottom from a nearly empty viewport.
+    var isBeyondBottom: Bool {
+        isMeasured && contentHeight > 0 && offsetY > bottomOffset + max(44, visibleHeight / 4)
+    }
 }

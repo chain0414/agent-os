@@ -13,10 +13,14 @@ struct V2SessionProjection {
     private static let dedupeWindow = 2048
     private let decoder = JSONDecoder()
 
-    init(snapshot: V2SessionSnapshot, maximumItems: Int) {
-        data = V2SessionData(snapshot: snapshot)
+    init(data: V2SessionData, maximumItems: Int) {
+        self.data = data
         self.maximumItems = max(1, maximumItems)
-        replaceTimeline(snapshot.timeline.items, hasMore: snapshot.timeline.hasMore)
+        replaceTimeline(data.items, hasMore: data.hasOlderItems)
+    }
+
+    init(snapshot: V2SessionSnapshot, maximumItems: Int) {
+        self.init(data: V2SessionData(snapshot: snapshot), maximumItems: maximumItems)
     }
 
     init(archive: V2SessionSnapshot, hasNewerItems: Bool, maximumItems: Int) {

@@ -38,7 +38,7 @@ deleted; `user_id` is set to `NULL` when the user is deleted.
 | --- | --- | --- | --- |
 | `user.active` | Any authenticated API call (`current_user_id`) or dashboard WebSocket connection | `active:{user}:{hour}` | Throttled in memory to one write per user per 5 minutes; at most one row per user per hour. |
 | `session.created` | `POST /sessions/create-and-start` succeeded | `session:{sessionId}` | Only sessions created from the platform. |
-| `session.viewed` | `GET /sessions/{id}/snapshot` succeeded — the call every client makes when it opens a session | none | One row per open. Repeats by the same user for the same session within 60 seconds (reconnects, refreshes) are folded in memory. |
+| `session.viewed` | `GET /sessions/{id}/snapshot` or `GET /sessions/{id}/meta` succeeded | none | One row per open. Repeats by the same user for the same session within 60 seconds (reconnects, refreshes) are folded in memory. |
 | `message.sent` | `create-and-start`, `POST .../runtime/messages`, `POST .../runtime/steer` accepted by the Connector | `msg:{clientMessageId}` (none without a client id) | Counted at the platform intent, not when the timeline item arrives. |
 | `turn.ended` | Connector notification `session.turnEnded` for a **takeover** session | `turn:{sessionId}:{turnId}` | `outcome` is `completed` / `interrupted` / `cancelled` / `failed`. `duration_ms` measures from the latest `message.sent` of the session; omitted when unknown or above 6 hours. Turns in read-only imported sessions are not platform usage. |
 | `approval.requested` | `notice.upsert` with `type=interaction`, `interactionType=approval`, `status=open` | `approval:{noticeId}:requested` | |

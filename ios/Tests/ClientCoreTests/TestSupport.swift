@@ -82,7 +82,7 @@ func event(_ type: String, seq: Int = 10, id: String? = nil, sessionID: String =
     func count(_ suffix: String) -> Int { calls.filter { $0.path.hasSuffix(suffix) }.count }
 
     func defaultResponse(_ call: Call) throws -> Data {
-        let fixtures = ["projects": "projects", "connectors": "connectors", "sessions": "sessions", "sessions/list": "sessions", "snapshot": "snapshot", "timeline": "timeline", "state": "state",
+        let fixtures = ["projects": "projects", "connectors": "connectors", "sessions": "sessions", "sessions/list": "sessions", "meta": "session", "snapshot": "snapshot", "timeline": "timeline", "state": "state",
                         "capabilities": "capabilities", "notices": "notices", "catalogs/model": "modelCatalog",
                         "catalogs/permission": "permissionCatalog", "selections": "selectionResponse", "takeover": "takeover",
                         "runtime-types": "runtimeTypes", "runtimes": "runtimes", "preferences": "preferences",
@@ -116,11 +116,12 @@ func event(_ type: String, seq: Int = 10, id: String? = nil, sessionID: String =
     func yield(_ event: V2SessionEvent) { streams.last?.yield(event) }
 }
 
-@MainActor func repository(transport: TestHTTPTransport, realtime: TestRealtimeAPI? = nil, policy: V2SessionCachePolicy = V2SessionCachePolicy(), now: @escaping () -> Date = Date.init) -> V2SessionRepository {
+@MainActor func repository(transport: TestHTTPTransport, realtime: TestRealtimeAPI? = nil, policy: V2SessionCachePolicy = V2SessionCachePolicy(), now: @escaping () -> Date = Date.init, openingTimeout: Duration = .seconds(8)) -> V2SessionRepository {
     let runtime = V2RuntimeAPI(transport: transport)
     return V2SessionRepository(
         scope: V2ClientScope(serverURL: URL(string: "https://example.test/api/v2")!, accountID: "account"),
-        detail: V2SessionDetailService(sessionAPI: V2SessionAPI(transport: transport), runtimeAPI: runtime, realtimeAPI: realtime ?? TestRealtimeAPI()),
+        detail: V2SessionDetailService(sessionAPI: V2SessionAPI(transport: transport), runtimeAPI: runtime,
+            realtimeAPI: realtime ?? TestRealtimeAPI(), openingTimeout: openingTimeout),
         interactions: V2RuntimeInteractionService(runtimeAPI: runtime), policy: policy, now: now,
         sleep: { _ in try await Task.sleep(for: .milliseconds(1)) }
     )

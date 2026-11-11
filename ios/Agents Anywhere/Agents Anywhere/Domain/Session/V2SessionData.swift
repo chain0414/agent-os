@@ -33,6 +33,15 @@ nonisolated struct V2SessionData: Hashable {
     var liveStateIsFresh = false
     var lastExtensionEvent: V2SessionEvent?
 
+    init(session: V2SessionMeta, timeline: V2SessionTimelinePage) {
+        self.session = session
+        items = timeline.items
+        hasOlderItems = timeline.hasMore
+        capabilities = V2RuntimeCapabilitySnapshot(revision: 0, capabilities: [])
+        notices = []
+        cursor = "seq:\(timeline.nextSeq)"
+    }
+
     init(snapshot: V2SessionSnapshot) {
         session = snapshot.session
         items = snapshot.timeline.items.sorted { $0.orderSeq < $1.orderSeq }

@@ -19,6 +19,7 @@ final class SessionChatModel {
     private(set) var isOpeningPrepared = false
     var isOpeningReady: Bool { isOpeningPrepared && timeline.hasPresentedSnapshot }
     private(set) var openingError: String?
+    private(set) var openingPreview: V2SessionOpeningPreview?
     private(set) var responseRevision = 0
     private(set) var commands: [V2RuntimeCommand] = []
     private(set) var isLoadingCommands = false
@@ -237,7 +238,7 @@ final class SessionChatModel {
         commandFailure = CommandFeedback(title: String(localized: "无法执行指令"), message: message)
     }
 
-    func prepareOpening() async {
+    func prepareOpening(summary: V2SessionMeta? = nil, showPreview: Bool = false) async {
         // Compact/split replacement creates a new view owner, not a fresh
         // page visit. Preserve the loaded window containing the reading anchor.
         if session.isValid, timeline.hasPresentedSnapshot, !session.readingAnchor.followsBottom {
@@ -246,17 +247,28 @@ final class SessionChatModel {
         }
         if !timeline.hasPresentedSnapshot { isOpeningPrepared = false }
         openingError = nil
+        let started = ContinuousClock.now
+        if showPreview, openingPreview == nil, !timeline.hasPresentedSnapshot {
+            openingPreview = await repository.openingPreviewIfUncached(sessionId: session.id)
+            guard session.isValid, !Task.isCancelled else { return }
+        }
         do {
-            // Both cold and cached visits begin with one latest page. Older
-            // records are added only by the user's explicit history requests.
-            _ = try await repository.open(sessionId: session.id)
+            // The timeline can display a cached window while it fetches newer records.
+            let timeout: Duration? = showPreview
+                ? (openingPreview?.text?.isEmpty == false
+                    ? .seconds(35) : max(.zero, .seconds(8) - started.duration(to: .now)))
+                : nil
+            _ = try await repository.open(sessionId: session.id, summary: summary, timeout: timeout)
         } catch {
             guard !Task.isCancelled else { return }
-            openingError = error.localizedDescription
+            openingError = (error as? URLError)?.code == .timedOut
+                ? String(localized: "加载消息超时，请重试。")
+                : error.localizedDescription
         }
         guard session.isValid, !Task.isCancelled else { return }
         if let data = repository.cached(sessionId: session.id) {
             timeline.presentOpening(data.items, pendingMessages: session.pendingMessages)
+            openingPreview = nil
         }
         isOpeningPrepared = true
     }

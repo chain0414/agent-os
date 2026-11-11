@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -66,6 +66,7 @@ from agent_server.core.protocol import (
     ProtocolEventRecoveryResponse,
     ProtocolModelCatalogResponse,
     ProtocolPermissionCatalogResponse,
+    ProtocolSessionOpeningPreview,
     ProtocolSessionSnapshotResponse,
     ProtocolTimelineResponse,
     ProtocolTimelineSnapshot,
@@ -479,6 +480,8 @@ async def list_session_inventory(
 @router.get("/{session_id}/meta", response_model=SessionResponse)
 async def get_session_meta(
     session_id: str,
+    background_tasks: BackgroundTasks,
+    usage_recorder: Annotated[UsageRecorder, Depends(get_usage_recorder)],
     user_id: str = Depends(current_user_id),
     db: Store = Depends(get_store),
     manager: ConnectorRpcManager = Depends(get_rpc),
@@ -492,8 +495,11 @@ async def get_session_meta(
             session = await db.get_session(session_id, user_id=user_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="session not found") from None
+    session = await with_effective_session_connector_status(manager, session)
+    # Clients that load persisted history separately finish opening here.
+    background_tasks.add_task(usage_recorder.touch_session_view, session, user_id=user_id)
     return SessionResponse(
-        session=await with_effective_session_connector_status(manager, session),
+        session=session,
         serverTime=utc_now(),
     )
 
@@ -825,6 +831,25 @@ async def patch_session_selections(
         state=state,
         connectorResult=connector_result,
         serverTime=utc_now(),
+    )
+
+
+@router.get("/{session_id}/opening-preview", response_model=ProtocolSessionOpeningPreview)
+async def session_opening_preview(
+    session_id: str,
+    user_id: str = Depends(current_user_id),
+    db: Store = Depends(get_store),
+) -> ProtocolSessionOpeningPreview:
+    try:
+        await db.get_session(session_id, user_id=user_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    # JSON can expand a Unicode character to six bytes for escaped controls.
+    limit = 1200
+    prefix = await db.timeline.latest_message_prefix(session_id, length=limit + 1)
+    return ProtocolSessionOpeningPreview(
+        text=prefix[:limit] if prefix is not None else None,
+        truncated=prefix is not None and len(prefix) > limit,
     )
 
 

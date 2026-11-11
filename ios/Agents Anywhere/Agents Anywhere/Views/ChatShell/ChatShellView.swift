@@ -86,6 +86,13 @@ struct ChatShellView: View {
         // Map and sort the session list once per body, not once per section.
         let sessions = sidebarSessions
         let services = appState.nativeChatServices
+        let pinned = sessions.filter(\.pinned)
+        let recent = sessions.filter { !$0.pinned }
+        let network = services?.connectivity.status
+        let candidates = scenePhase == .active && sidebar.isOpen(in: layout)
+            && network?.allowsSessionPrefetch == true
+            ? Array((pinned + recent).lazy.filter { $0.id != selectedSessionId }.prefix(2).map(\.id))
+            : []
         return SidebarDrawer(
             isOpen: sidebarBinding(for: layout),
             presentation: layout == .regularSplit ? .nativeSidebar : .drawer,
@@ -98,8 +105,8 @@ struct ChatShellView: View {
                 agentSetup: services?.agentSetup,
                 safeAreaInsets: safeAreaInsets,
                 devices: sidebarDevices,
-                pinnedSessions: sessions.filter(\.pinned),
-                recentSessions: sessions.filter { !$0.pinned },
+                pinnedSessions: pinned,
+                recentSessions: recent,
                 repository: services?.dashboardRepository,
                 onNewProjectSession: startProjectSession,
                 onRestoreSession: { await appState.setSessionArchived(sessionId: $0, archived: false) },
@@ -120,6 +127,12 @@ struct ChatShellView: View {
         } content: { safeAreaInsets in
             mainContent
                 .modifier(ChatDetailNavigation(insets: safeAreaInsets))
+        }
+        .task(id: SessionPrefetchKey(repository: services.map { ObjectIdentifier($0.sessionRepository) }, candidates: candidates),
+              priority: .utility) {
+            guard let services, !candidates.isEmpty else { return }
+            let summaries = candidates.compactMap { id in appState.sessions.first { $0.id == id } }
+            await services.sessionRepository.prefetch(summaries)
         }
     }
 
@@ -198,9 +211,11 @@ struct ChatShellView: View {
         } else if let services = appState.nativeChatServices {
             if case let .session(id) = selection {
                 let session = services.sessionRepository.session(id: id)
-                let connectorID = session.metadata?.connectorId ?? appState.sessions.first { $0.id == id }?.connectorId
+                let summary = appState.sessions.first { $0.id == id }
+                let connectorID = session.metadata?.connectorId ?? summary?.connectorId
                 SessionChatView(session: session, services: services,
                     deviceName: appState.connectors.first { $0.id == connectorID }?.name,
+                    summary: summary,
                     onMenu: toggleSidebar)
                     .equatable()
                     .id(id)
@@ -299,6 +314,11 @@ struct ChatShellView: View {
 private struct NewSessionLoadKey: Equatable {
     let target: NewSessionRefreshKey?
     let presentationID: UUID
+}
+
+private struct SessionPrefetchKey: Equatable {
+    let repository: ObjectIdentifier?
+    let candidates: [V2SessionID]
 }
 
 private struct ChatShellPlaceholderPage: View {

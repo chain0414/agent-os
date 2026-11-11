@@ -352,3 +352,9 @@ WS /api/v2/connector/terminals/{terminalId}/relay
 Terminal APIs are local capability APIs, not Agent Runtime Protocol session APIs. They can be cleaned up later as a separate local-capabilities interface pass.
 
 Do not block the runtime protocol migration on terminal endpoint consolidation.
+
+## 会话首屏正文
+
+`GET /api/v2/sessions/{sessionId}/opening-preview` 需要与历史接口相同的会话读取权限。返回 `{"text":"…","truncated":true}`，其中 `text` 是 PostgreSQL 中最近一条可见对话消息去除开头空白后的前 1200 个 Unicode 字符。跳过空正文、隐藏记录和自动化控制记录。没有符合条件的记录时返回 `{"text":null,"truncated":false}`。响应上限为 8 KiB。
+
+客户端可先显示这段正文，再加载完整的最新时间线。完整时间线负责建立事件游标、合并后续事件和写入本地归档。预览读已持久化的数据，暂存的实时更新由完整时间线和事件恢复补齐。未提供此端点的 Server 继续使用已有历史接口。

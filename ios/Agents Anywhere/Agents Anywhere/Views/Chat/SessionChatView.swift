@@ -5,6 +5,7 @@ struct SessionChatView: View, Equatable {
     @StateObject private var storage: StableViewModel<SessionChatModel>
     private var model: SessionChatModel { storage.value }
     private let sessionIdentity: V2SessionModel
+    private let sessionSummary: V2SessionMeta?
     let deviceName: String?
     let onMenu: () -> Void
     @State private var sheet: SessionSheet?
@@ -29,7 +30,7 @@ struct SessionChatView: View, Equatable {
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var takeoverPillHeight: CGFloat = 32
 
-    init(session: V2SessionModel, services: V2ClientServices, deviceName: String?,
+    init(session: V2SessionModel, services: V2ClientServices, deviceName: String?, summary: V2SessionMeta? = nil,
          onMenu: @escaping () -> Void) {
         _storage = StateObject(wrappedValue: StableViewModel {
             let chat = SessionChatModel(session: session, repository: services.sessionRepository, attachments: services.attachments,
@@ -41,6 +42,7 @@ struct SessionChatView: View, Equatable {
             return chat
         })
         sessionIdentity = session
+        sessionSummary = summary
         self.deviceName = deviceName
         fileService = services.workspaceFiles; detailService = services.sessionDetail
         speechService = services.speech
@@ -53,11 +55,13 @@ struct SessionChatView: View, Equatable {
     // model changes and real size/environment changes still update this subtree.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.sessionIdentity === rhs.sessionIdentity && lhs.deviceName == rhs.deviceName
+            && lhs.sessionSummary?.id == rhs.sessionSummary?.id
     }
     var body: some View {
         GeometryReader { geometry in
             Group {
-                if hasStartedLoading {
+                // Resolve the scroll view's initial anchor against the loaded page.
+                if hasStartedLoading && model.isOpeningReady {
                     ChatTimelineView(model: model,
                         onAttachment: openAttachment, onFile: openFile)
                 } else {
@@ -167,9 +171,12 @@ struct SessionChatView: View, Equatable {
         }
         .task(id: hasStartedLoading) {
             guard hasStartedLoading else { return }
-            // Reattaching a loaded detail only resumes observation.
-            await model.prepareOpening()
-            guard !Task.isCancelled else { return }
+            await model.prepareOpening(summary: sessionSummary, showPreview: true)
+        }
+        .task(id: model.isOpeningReady) {
+            // A failed first read stays at the retry action. A successful
+            // explicit retry starts observation through the same view lifecycle.
+            guard model.isOpeningReady else { return }
             await model.timeline.run(sessionID: session.id, repository: model.repository)
         }
         .sheet(item: $sheet) { destination in
@@ -211,25 +218,41 @@ struct SessionChatView: View, Equatable {
             toasts.update(source: "command", failure: nil)
             toasts.update(source: "command", failure: feedback.map { V2ClientFailure(kind: .rejected, message: $0.message ?? "") }, title: feedback?.title)
         }
-        .onChange(of: model.openingError, initial: true) { _, message in
-            toasts.update(source: "opening", failure: message.map { V2ClientFailure(kind: .unavailable, message: $0) })
-        }
     }
 
     private var openingMask: some View {
         ZStack {
             Color(uiColor: .systemBackground)
-            VStack(spacing: 12) {
-                if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
-                    Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button(String(localized: "重试")) { Task { await model.prepareOpening() } }
-                } else {
-                    ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
+            if let preview = model.openingPreview, let text = preview.text, !text.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(verbatim: preview.truncated ? text + "…" : text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                        openingFeedback
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ChatPageContentColumn(horizontalInset: nil))
+                    .padding(.vertical, 24)
                 }
+            } else {
+                openingFeedback.padding(24).frame(maxWidth: 320)
             }
-            .padding(24).frame(maxWidth: 320)
         }
         .transition(.identity)
+    }
+
+    private var openingFeedback: some View {
+        VStack(spacing: 12) {
+            if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
+                Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button(String(localized: "重试")) {
+                    Task { await model.prepareOpening(summary: sessionSummary, showPreview: true) }
+                }
+            } else {
+                ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
+            }
+        }
     }
 
     private var takeoverPill: some View {

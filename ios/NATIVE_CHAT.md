@@ -80,20 +80,22 @@ Semantic error and availability colors remain separate from the primary color.
   parent updates from constructing and discarding another chat model. Cached
   preparation still reads the repository without requesting history again.
   A sidebar gesture after loading starts does not restart the connection.
-  A fresh opening retains the latest 100 timeline records, including cached visits.
+  A cold opening fetches the latest 24 timeline records. If a full page contains
+  only tool or other non-message records, it expands once to the latest 100.
+  A cached visit retains up to 100 records.
   Older records are loaded explicitly in 100-record pages and accumulate during
   that visit. Reopening while following the bottom trims the window again; a
   compact/split layout replacement while reading preserves the loaded window and
   its paragraph anchor. Trimming preserves the older-history
   flag; recovery updates cannot reinsert rows before its pagination boundary.
-  Opening reveals the window when the initial projection is
-  ready, and animates to the native bottom edge. It never pages backward to
-  find a user message. Spinner dismissal and the batch presentation clock do not wait
-  for scroll/layout acknowledgements; there is no frozen opening snapshot or
-  positioning retry loop. Network failures still offer Retry.
+  The timeline mounts when the initial projection is ready. A fresh opening
+  without a reading anchor targets the tail in the first layout. Spinner dismissal
+  and batch presentation do not wait for scroll acknowledgements. Network failures
+  still offer Retry.
 - `TimelineScrollState` owns three navigation modes: reading, following and
-  returning. Opening, sending, accepted responses and the bottom pill all request
-  the same return operation. SwiftUI resolves the bottom edge in its own inset
+  returning. The initial anchor owns opening until the tail is measured. Sending,
+  accepted responses and the bottom pill request a return to the bottom.
+  SwiftUI resolves the bottom edge in its own inset
   coordinate system; completion releases the target so it cannot keep pulling
   later manual reading back down. Command IDs stop interrupted/old completions
   from releasing a newer target. Layout changes are
