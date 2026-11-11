@@ -227,6 +227,41 @@ class SqlTimelineStore:
         items = [TimelineItem.model_validate_json(row["payload_json"]) for row in rows[:limit]]
         return items, has_more
 
+    async def latest_message_prefix(self, session_id: str, *, length: int) -> str | None:
+        query = (
+            select(timeline_items.c.payload_json)
+            .where(
+                timeline_items.c.session_id == session_id,
+                timeline_items.c.type == "message",
+                timeline_items.c.status != "hidden",
+            )
+            .order_by(
+                timeline_items.c.order_seq.desc(),
+                timeline_items.c.updated_seq.desc(),
+                timeline_items.c.id.desc(),
+            )
+            .execution_options(yield_per=1)
+        )
+        async with self._engine.connect() as conn:
+            async with conn.stream_scalars(query) as messages:
+                async for raw in messages:
+                    content = json.loads(raw).get("content")
+                    if not isinstance(content, dict):
+                        continue
+                    body = content.get("text")
+                    if not isinstance(body, str):
+                        continue
+                    body = body.lstrip()
+                    # The full timeline presents these control envelopes as
+                    # automation records instead of displaying the raw markup.
+                    automation = content.get("automation")
+                    if not body or body.startswith("<heartbeat>") or (
+                        isinstance(automation, dict) and automation.get("kind") == "schedule"
+                    ):
+                        continue
+                    return body[:length]
+        return None
+
     async def list_latest(self, session_id: str, *, limit: int) -> tuple[list[TimelineItem], bool]:
         async with self._engine.connect() as conn:
             rows = (

@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated struct V2SessionOpeningPreview: Decodable, Equatable {
+    let text: String?
+    let truncated: Bool
+}
+
 nonisolated enum V2TimelineMode: String {
     case latest
     case changes

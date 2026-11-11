@@ -9463,6 +9463,22 @@
         }
       }
     },
+    "加载消息超时，请重试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading messages timed out. Try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载消息超时，请重试。"
+          }
+        }
+      }
+    },
     "加载对话选项…": {
       "comment": "Shared with Web: common.loading. Sync with ios/scripts/web_copy.py.",
       "extractionState": "manual",

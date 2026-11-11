@@ -145,12 +145,12 @@ final class V2SessionModel: Identifiable {
         catch { if isValid { failure = V2ClientFailure(error) } }
     }
 
-    func loadLatest() async {
+    func loadLatest(shouldApply: () -> Bool = { true }) async {
         guard let repository, isValid, !isLoadingHistory else { return }
         isLoadingHistory = true
         defer { isLoadingHistory = false }
-        do { _ = try await repository.loadLatest(sessionId: id) }
-        catch { if isValid { failure = V2ClientFailure(error) } }
+        do { _ = try await repository.loadLatest(sessionId: id, shouldApply: shouldApply) }
+        catch { if isValid, !Task.isCancelled { failure = V2ClientFailure(error) } }
     }
 
     /// Explicit user action only. No outbox replay: clientMessageId correlates an echo

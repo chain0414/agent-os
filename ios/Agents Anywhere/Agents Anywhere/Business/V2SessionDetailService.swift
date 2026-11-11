@@ -4,10 +4,66 @@ struct V2SessionDetailService {
     let sessionAPI: any V2SessionAPIProtocol
     let runtimeAPI: any V2RuntimeAPIProtocol
     let realtimeAPI: any V2RealtimeAPIProtocol
+    var openingTimeout: Duration = .seconds(8)
 
-    func load(sessionId: V2SessionID, itemLimit: Int = 100) async throws -> V2SessionSnapshot {
-        try validatePageSize(itemLimit)
-        return try await sessionAPI.snapshot(sessionId: sessionId, limit: itemLimit)
+    func openingPreview(sessionId: V2SessionID) async throws -> V2SessionOpeningPreview {
+        try await withOpeningDeadline(timeout: .milliseconds(1400)) {
+            try await sessionAPI.openingPreview(sessionId: sessionId)
+        }
+    }
+
+    func loadPersisted(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
+                       timeout: Duration? = nil) async throws -> V2SessionData {
+        try await withOpeningDeadline(timeout: timeout) {
+            try await readPersisted(sessionId: sessionId, summary: summary)
+        }
+    }
+
+    func latestItemsWithDeadline(sessionId: V2SessionID, limit: Int) async throws -> V2SessionTimelinePage {
+        try await withOpeningDeadline { try await latestItems(sessionId: sessionId, limit: limit) }
+    }
+
+    private func withOpeningDeadline<Value: Sendable>(
+        timeout: Duration? = nil,
+        _ read: @escaping @MainActor () async throws -> Value
+    ) async throws -> Value {
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { @MainActor in try await read() }
+            let timeout = timeout ?? openingTimeout
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+
+    private func readPersisted(sessionId: V2SessionID, summary: V2SessionMeta?) async throws -> V2SessionData {
+        let openingLimit = 24
+        var timeline = try await latestItems(sessionId: sessionId, limit: openingLimit)
+        guard timeline.sessionId == sessionId else { throw HTTPError.invalidResponse }
+        // A dense tool tail can hide the most recent message beyond the small page.
+        if timeline.hasMore, timeline.items.count == openingLimit,
+           !timeline.items.contains(where: { $0.type == .message && $0.isVisibleInChat }) {
+            timeline = try await latestItems(sessionId: sessionId)
+        }
+        // Read metadata after the timeline cursor so recovery can replay every
+        // change the timeline missed without regressing to older metadata.
+        let meta: V2SessionMeta
+        if let summary, summary.id == sessionId {
+            meta = summary
+        } else {
+            meta = try await metadata(sessionId: sessionId)
+        }
+        guard timeline.sessionId == sessionId else { throw HTTPError.invalidResponse }
+        return V2SessionData(session: meta, timeline: timeline)
+    }
+
+    func metadata(sessionId: V2SessionID) async throws -> V2SessionMeta {
+        let meta = try await sessionAPI.sessionMeta(sessionId: sessionId).session
+        guard meta.id == sessionId else { throw HTTPError.invalidResponse }
+        return meta
     }
 
     func loadOlderItems(

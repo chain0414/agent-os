@@ -7,6 +7,10 @@ nonisolated struct V2NetworkStatus: Hashable, Sendable {
     var availability: Availability = .unknown
     var isExpensive = false
     var isConstrained = false
+
+    var allowsSessionPrefetch: Bool {
+        availability == .online && !isExpensive && !isConstrained
+    }
 }
 
 /// Path availability is a scheduling hint, not proof that this server is reachable.

@@ -10,17 +10,19 @@ struct ChatTimelineView: View {
     @State private var historyLayout: TimelineHistoryLayout?
     @State private var historyPosition: TimelineHistoryPosition?
     @State private var hasRequestedOlder = false
-    @State private var position = ScrollPosition()
+    @State private var position: ScrollPosition
+    private let anchoredAtTail: Bool
     @State private var scrolling = TimelineScrollState()
     @State private var viewportSample = ChatViewportSample()
     @State private var viewportUpdates = ChatLayoutUpdate<TimelineViewport>()
+    @State private var openingViewportBeyondBottom = false
     @State private var historyUpdates = ChatLayoutUpdate<TimelineHistoryLayout>()
     @State private var latestPull = TimelineHistoryPull()
     @State private var olderPull = TimelineHistoryPull(edge: .older)
     @State private var olderPromptVisible = false
     @State private var olderLoadRequest: Int?
     @State private var latestPromptVisible = false
-    @State private var latestLoadRequest: Int?
+    @State private var latestLoadRequest: LatestLoadRequest?
     @State private var nativePhase = TimelineScrollState.Phase.idle
     /// The return pill would sit on top of the keyboard while typing.
     @State private var keyboardIsVisible = false
@@ -35,6 +37,16 @@ struct ChatTimelineView: View {
 #if DEBUG
     private static let drawerLayoutLog = Logger(subsystem: "agents.anywhere", category: "drawer-layout")
 #endif
+
+    init(model: SessionChatModel, onAttachment: @escaping (V2AttachmentContent) -> Void,
+         onFile: @escaping (String) -> Void) {
+        self.model = model
+        self.onAttachment = onAttachment
+        self.onFile = onFile
+        anchoredAtTail = model.session.readingAnchor.anchor == nil
+        // Keep the same target visible as lazy rows above it resolve their heights.
+        _position = State(initialValue: anchoredAtTail ? ScrollPosition(id: "tail", anchor: .bottom) : ScrollPosition())
+    }
 
     private var hasInteractions: Bool {
         !SessionInteractionPager.items(model.session.notices.notices, sessionID: model.session.id,
@@ -52,7 +64,7 @@ struct ChatTimelineView: View {
                     latestPullReady: latestPull.isReady, isLoadingLatest: latestLoadRequest != nil,
                     olderPullReady: olderPull.isReady, isLoadingOlder: olderLoadRequest != nil,
                     keepsOlderPrompt: hasRequestedOlder, historyAnchor: historyPosition?.origin,
-                    onLoadOlder: loadOlder, onLoadLatest: loadLatest,
+                    onLoadOlder: loadOlder, onLoadLatest: { loadLatest() },
                     onHistoryLayout: historyDidLayOut,
                     onPromptVisibility: { latestPromptVisible = $0 },
                     onOlderPromptVisibility: { olderPromptVisible = $0 },
@@ -77,7 +89,7 @@ struct ChatTimelineView: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .defaultScrollAnchor(.top, for: .initialOffset)
+            .defaultScrollAnchor(anchoredAtTail ? .bottom : .top, for: .initialOffset)
             .defaultScrollAnchor(.top, for: .alignment)
             .defaultScrollAnchor(.top, for: .sizeChanges)
             .allowsHitTesting(model.isOpeningReady)
@@ -143,6 +155,10 @@ struct ChatTimelineView: View {
                     // Offset samples are needed for restoration, but do not change
                     // the rendered page. Publish only dimensions used by following.
                     viewportSample.value = value
+                    if anchoredAtTail, scrolling.navigationGeneration == 0,
+                       openingViewportBeyondBottom != value.isBeyondBottom {
+                        openingViewportBeyondBottom = value.isBeyondBottom
+                    }
                     let previous = scrolling.viewport
                     if previous.contentHeight != value.contentHeight || previous.visibleHeight != value.visibleHeight
                         || previous.topInset != value.topInset {
@@ -179,9 +195,22 @@ struct ChatTimelineView: View {
             }
             .onChange(of: model.isOpeningReady, initial: true) { _, ready in
                 if ready {
-                    scrolling.open(interactionPresented: hasInteractions)
+                    scrolling.open(interactionPresented: hasInteractions, anchoredAtTail: anchoredAtTail)
                     if model.session.readingAnchor.anchor != nil { scrolling.browseHistory() }
+                    else if !navigationIsSuspended && model.session.network.availability != .offline {
+                        loadLatest(automatically: true)
+                    }
                 }
+            }
+            .task(id: openingViewportBeyondBottom && !navigationIsSuspended) {
+                guard openingViewportBeyondBottom, !navigationIsSuspended else { return }
+                // Let transient native layout estimates settle before replacing
+                // the invalid initial target with a measured content offset.
+                do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+                guard !Task.isCancelled, let offset = scrolling.openingOffsetCorrection(for: viewport) else { return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { position.scrollTo(y: offset) }
             }
             .task(id: ReadingRestoration(width: readingWidth, ready: model.isOpeningReady)) {
                 guard model.isOpeningReady, readingWidth > 0 else { return }
@@ -260,11 +289,15 @@ struct ChatTimelineView: View {
                 historyPosition = nil; olderLoadRequest = nil
             }
             .task(id: latestLoadRequest) {
-                guard let generation = latestLoadRequest else { return }
-                await model.session.loadLatest()
+                guard let request = latestLoadRequest else { return }
+                await model.session.loadLatest {
+                    !request.automatic || (!navigationIsSuspended && scrolling.navigationGeneration == request.generation)
+                }
                 guard !Task.isCancelled else { return }
                 // A drag during the fetch must not be undone when it finishes.
-                if scrolling.navigationGeneration == generation { scrolling.requestBottom() }
+                if !model.session.hasNewerItems, scrolling.navigationGeneration == request.generation {
+                    scrolling.requestBottom()
+                }
                 latestLoadRequest = nil
             }
             if !keyboardIsVisible, scrolling.showsBottomButton() {
@@ -323,13 +356,18 @@ struct ChatTimelineView: View {
         let width: CGFloat
         let ready: Bool
     }
-    private func loadLatest() {
+    private struct LatestLoadRequest: Equatable {
+        let generation: Int
+        let automatic: Bool
+    }
+
+    private func loadLatest(automatically: Bool = false) {
         guard model.session.isValid, model.session.hasNewerItems,
               !model.session.isLoadingHistory, latestLoadRequest == nil, olderLoadRequest == nil else { return }
         olderPull.cancel(); latestPull.cancel()
         historyPosition?.cancelRestoration()
-        scrolling.requestBottom()
-        latestLoadRequest = scrolling.navigationGeneration
+        if !automatically { scrolling.requestBottom() }
+        latestLoadRequest = LatestLoadRequest(generation: scrolling.navigationGeneration, automatic: automatically)
     }
     private func scrollToBottom(_ command: TimelineScrollState.BottomCommand) {
         withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.28, dampingFraction: 1, blendDuration: 0.12),
@@ -343,7 +381,8 @@ struct ChatTimelineView: View {
         }
     }
     private func releaseScrollPosition() {
-        guard position.edge != nil || position.point != nil else { return }
+        guard !position.isPositionedByUser,
+              position.edge != nil || position.point != nil || position.viewID(type: String.self) == "tail" else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) { position.isPositionedByUser = true }

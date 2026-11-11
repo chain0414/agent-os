@@ -22,6 +22,8 @@
 
 ### iOS
 
+- 打开会话时优先显示已有历史，无缓存时先显示最近一条已同步消息的正文再补齐时间线，首次加载超时时可重试，并在非计量网络下预加载少量常用会话的消息。（[#3](https://github.com/chain0414/agent-os/pull/3)）
+
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
 - 首页可用邮箱密码登录 `os.begrow.ai` 并进入工作空间，表单有常驻标签并支持用键盘切到密码，也可通过「其他登录方式」选择飞书登录，新电脑可在「设备」中配对。（[#2](https://github.com/chain0414/agent-os/pull/2)、[#4](https://github.com/chain0414/agent-os/pull/4)）

@@ -130,7 +130,14 @@ nonisolated final class ProbeURLProtocol:URLProtocol, @unchecked Sendable {
         let data=try! ProbeModels.snapshotData(count:12,review:true)
         let snapshot=try! JSONDecoder().decode(V2SessionSnapshot.self,from:data)
         let fixtures=try! JSONSerialization.jsonObject(with:Data(contentsOf:Bundle.main.url(forResource:"ConversationProbeFixtures",withExtension:"json")!)) as! [String:Any]
-        var responses:[String:Data]=["snapshot":data]
+        let aggregate=try! JSONSerialization.jsonObject(with:data) as! [String:Any]
+        var timeline=aggregate["timeline"] as! [String:Any]
+        timeline["sessionId"]=snapshot.session.id
+        let meta=["session":aggregate["session"]!, "serverTime":snapshot.serverTime]
+        var responses:[String:Data]=[
+            "timeline":try! JSONSerialization.data(withJSONObject:timeline),
+            "meta":try! JSONSerialization.data(withJSONObject:meta),
+        ]
         for (path,key) in ["state":"state","capabilities":"capabilities","notices":"notices","catalogs/model":"modelCatalog","catalogs/permission":"permissionCatalog","commands":"commands"] { responses[path]=try! JSONSerialization.data(withJSONObject:fixtures[key]!) }
         ProbeURLProtocol.responses.withLock { $0=responses }
         let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[ProbeURLProtocol.self]
