@@ -22,7 +22,7 @@
 
 ### iOS
 
-- 工具调用即使只有一条也默认折叠，Codex 和 DSH 的已完成轮次同时折叠过程记录，保留最终回复和需要处理的交互。
+- 工具调用即使只有一条也默认折叠，Codex 和 DSH 的已完成轮次同时折叠过程记录，保留最终回复和需要处理的交互。（[#7](https://github.com/chain0414/agent-os/pull/7)）
 
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 
