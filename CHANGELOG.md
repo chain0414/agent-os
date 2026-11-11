@@ -22,7 +22,7 @@
 
 ### iOS
 
-- Codex 会话追加指令后正常显示发出的消息，聊天中不再出现 `unknown` 控制记录。
+- Codex 会话追加指令后正常显示发出的消息，聊天中不再出现 `unknown` 控制记录。（[#8](https://github.com/chain0414/agent-os/pull/8)）
 
 - 工具调用即使只有一条也默认折叠，Codex 和 DSH 的已完成轮次同时折叠过程记录，保留最终回复和需要处理的交互。（[#7](https://github.com/chain0414/agent-os/pull/7)）
 
