@@ -263,6 +263,7 @@ struct ChatShellView: View {
     }
 
     private func openSession(_ id: V2SessionID) {
+        appState.nativeChatServices?.sessionRepository.prioritizeOpening(sessionId: id)
         selection = .session(id)
         sidebar.selectDestination()
     }

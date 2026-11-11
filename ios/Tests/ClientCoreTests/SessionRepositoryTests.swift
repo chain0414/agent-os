@@ -11,7 +11,7 @@ import Testing
         defer { history.release(); repo.reset() }
         http.respond = { call in
             if call.path.hasSuffix("/opening-preview") {
-                return Data(#"{"text":"First paragraph","truncated":true}"#.utf8)
+                return Data(#"{"text":"Hello","truncated":true}"#.utf8)
             }
             if call.path.hasSuffix("/timeline") { await history.wait() }
             return try http.defaultResponse(call)
@@ -21,17 +21,198 @@ import Testing
             attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
         let opening = Task { await chat.prepareOpening(summary: summary, showPreview: true) }
         defer { opening.cancel() }
-        try await eventually { chat.openingPreview?.text == "First paragraph" && http.count("/timeline") == 1 }
+        try await eventually { chat.openingPreview?.text == "Hello" && http.count("/timeline") == 1 }
         #expect(repo.cached(sessionId: summary.id) == nil)
         #expect(!chat.isOpeningReady)
         history.release()
         await opening.value
-        #expect(chat.isOpeningReady && chat.openingPreview == nil)
+        #expect(chat.isOpeningReady && chat.retainedOpeningPreview?.text == "Hello")
+        let readable = try #require(chat.timeline.rows.last?.value)
+        chat.finishPreviewHandoff(visible: readable)
+        #expect(chat.openingPreview == nil)
         #expect(chat.timeline.rows.last?.id == "item")
         #expect(repo.cached(sessionId: summary.id)?.cursor == "seq:10")
 
         await chat.prepareOpening(summary: summary, showPreview: true)
         #expect(http.count("/opening-preview") == 1)
+    }
+
+    @Test func historyCanBecomeReadableWithoutWaitingForStalledPreview() async throws {
+        let http = TestHTTPTransport(), preview = TestGate()
+        let repo = repository(transport: http)
+        defer { preview.release(); repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                await preview.wait()
+                return Data(#"{"text":"Old preview","truncated":false}"#.utf8)
+            }
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        let opening = Task { await chat.prepareOpening(summary: summary, showPreview: true) }
+        defer { opening.cancel() }
+        try await eventually { chat.isOpeningReady && chat.timeline.rows.last?.id == "item" }
+        #expect(!preview.released)
+        preview.release()
+        await opening.value
+        #expect(chat.retainedOpeningPreview?.text == "Old preview")
+    }
+
+    @Test func differentHistoryDoesNotRemoveTheReadablePreview() async throws {
+        let http = TestHTTPTransport(), history = TestGate()
+        let repo = repository(transport: http)
+        defer { history.release(); repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                return Data(#"{"text":"Newest message outside this page","truncated":false}"#.utf8)
+            }
+            if call.path.hasSuffix("/timeline") { await history.wait() }
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        let opening = Task { await chat.prepareOpening(summary: summary, showPreview: true) }
+        defer { opening.cancel() }
+        try await eventually { chat.retainedOpeningPreview != nil }
+        history.release()
+        await opening.value
+        #expect(chat.isOpeningReady)
+        let older = try #require(chat.timeline.rows.last?.value)
+        chat.finishPreviewHandoff(visible: older)
+        #expect(chat.retainedOpeningPreview?.text == "Newest message outside this page")
+        #expect(chat.timeline.rows.last?.id == "item")
+    }
+
+    @Test func coldDeadlineCancelsSlowHistoryAndRetryStartsAFreshRequest() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        http.respond = { _ in
+            try await Task.sleep(for: .seconds(60))
+            throw URLError(.cannotConnectToHost)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        await chat.prepareOpening(summary: summary, showPreview: true, firstScreenTimeout: .seconds(2))
+        #expect(chat.openingError != nil)
+        #expect(http.count("/timeline") == 1)
+        #expect(!chat.isOpeningReady)
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                return Data(#"{"text":"Hello","truncated":false}"#.utf8)
+            }
+            return try http.defaultResponse(call)
+        }
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(http.count("/timeline") == 2)
+        #expect(chat.isOpeningReady && chat.openingError == nil)
+    }
+
+    @Test func cancellingOpeningDiscardsALatePreview() async throws {
+        let http = TestHTTPTransport(), preview = TestGate()
+        let repo = repository(transport: http)
+        defer { preview.release(); repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                await preview.wait()
+                return Data(#"{"text":"A late preview","truncated":false}"#.utf8)
+            }
+            try await Task.sleep(for: .seconds(60))
+            throw URLError(.cannotConnectToHost)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        let opening = Task { await chat.prepareOpening(summary: summary, showPreview: true) }
+        defer { opening.cancel() }
+        try await eventually { http.count("/timeline") == 1 }
+        opening.cancel()
+        preview.release()
+        await opening.value
+        #expect(chat.retainedOpeningPreview == nil && chat.openingError == nil)
+        #expect(repo.cached(sessionId: summary.id) == nil)
+    }
+
+    @Test func coldOpenRecoversAfterConnectivityReturns() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        repo.updateConnectivity(V2NetworkStatus(availability: .offline))
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(chat.openingError != nil && !chat.isOpeningReady)
+        #expect(http.count("/timeline") == 0)
+
+        repo.updateConnectivity(V2NetworkStatus(availability: .online))
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(chat.isOpeningReady && chat.openingError == nil)
+        #expect(chat.timeline.rows.last?.id == "item")
+    }
+
+    @Test func toolOnlyWindowCannotSwallowOpeningRetry() async throws {
+        let http = TestHTTPTransport()
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        var previewAvailable = false
+        http.respond = { call in
+            if call.path.hasSuffix("/opening-preview") {
+                return Data((previewAvailable
+                    ? #"{"text":"Message before the tool tail","truncated":false}"#
+                    : #"{"text":null,"truncated":false}"#).utf8)
+            }
+            if call.path.hasSuffix("/timeline") {
+                var page = try fixtureObject("timeline")
+                var tool = try itemObject()
+                tool["type"] = "tool"
+                tool["content"] = ["kind": "command", "command": "build"]
+                page["items"] = [tool]
+                page["hasMore"] = true
+                return try JSONSerialization.data(withJSONObject: page)
+            }
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let chat = SessionChatModel(session: repo.session(id: summary.id), repository: repo,
+            attachments: .init(attachmentAPI: V2AttachmentAPI(transport: http)))
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(chat.needsReadableHistory && chat.openingError != nil)
+        previewAvailable = true
+        await chat.prepareOpening(summary: summary, showPreview: true)
+        #expect(chat.retainedOpeningPreview?.text == "Message before the tool tail")
+        #expect(chat.openingError == nil)
+        #expect(http.count("/opening-preview") == 2)
+        #expect(http.count("/timeline") == 2)
+    }
+
+    @Test func previousPageOwnerCannotCancelNewPageHistory() async throws {
+        let http = TestHTTPTransport(), history = TestGate()
+        let repo = repository(transport: http)
+        defer { history.release(); repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/timeline") { await history.wait() }
+            try Task.checkCancellation()
+            return try http.defaultResponse(call)
+        }
+        let summary = try fixture("session", as: V2SessionMetaResponse.self).session
+        let previous = UUID(), current = UUID()
+        repo.beginOpening(sessionId: summary.id, owner: previous)
+        let first = Task { try await repo.open(sessionId: summary.id, summary: summary) }
+        defer { first.cancel() }
+        try await eventually { http.count("/timeline") == 1 }
+        repo.beginOpening(sessionId: summary.id, owner: current)
+        let second = Task { try await repo.open(sessionId: summary.id, summary: summary) }
+        defer { second.cancel() }
+        repo.cancelOpeningHistory(sessionId: summary.id, owner: previous)
+        history.release()
+        let opened = try await second.value
+        #expect(opened.items.last?.id == "item")
+        #expect(http.count("/timeline") == 1)
     }
 
     @Test func dashboardOpeningPublishesHistoryBeforeSlowMetadata() async throws {

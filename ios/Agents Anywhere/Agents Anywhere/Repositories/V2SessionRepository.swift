@@ -22,6 +22,7 @@ final class V2SessionRepository {
     private var accessCounter = 0
     private var suspended = false
     private var prefetchID: UUID?
+    private var prefetchSessionID: V2SessionID?
     private(set) var network = V2NetworkStatus()
 
     init(
@@ -72,30 +73,65 @@ final class V2SessionRepository {
         guard prefetchID == nil, canPrefetch else { return }
         let id = UUID()
         prefetchID = id
-        defer { if prefetchID == id { prefetchID = nil } }
+        defer {
+            if prefetchID == id { prefetchID = nil; prefetchSessionID = nil }
+        }
         for summary in summaries.prefix(2) {
             guard !Task.isCancelled, prefetchID == id, canPrefetch else { return }
-            _ = try? await load(sessionId: summary.id, summary: summary)
+            prefetchSessionID = summary.id
+            let entry = entry(for: summary.id)
+            await restoreCachedSession(id: summary.id)
+            guard !Task.isCancelled, prefetchID == id, canPrefetch, isCurrent(entry) else { return }
+            if entry.projection == nil {
+                _ = try? await hydrate(entry, summary: summary)
+            }
         }
+    }
+
+    func prioritizeOpening(sessionId: V2SessionID) {
+        if let prefetchSessionID, prefetchSessionID != sessionId,
+           entries[prefetchSessionID]?.projection == nil {
+            cancelOpeningHistory(sessionId: prefetchSessionID)
+        }
+        prefetchID = nil
+        prefetchSessionID = nil
     }
 
     private var canPrefetch: Bool {
         !suspended && network.allowsSessionPrefetch
     }
 
-    func openingPreviewIfUncached(sessionId: V2SessionID) async -> V2SessionOpeningPreview? {
+    func openingPreviewIfNeeded(sessionId: V2SessionID) async -> V2SessionOpeningPreview? {
         await restoreCachedSession(id: sessionId)
-        guard !Task.isCancelled, entries[sessionId]?.projection == nil,
-              network.availability != .offline else { return nil }
+        guard !Task.isCancelled, network.availability != .offline else { return nil }
+        if let data = entries[sessionId]?.projection?.data,
+           !data.hasOlderItems || data.items.contains(where: \.hasOpeningMessage) { return nil }
         return try? await detail.openingPreview(sessionId: sessionId)
+    }
+
+    func beginOpening(sessionId: V2SessionID, owner: UUID) {
+        entry(for: sessionId).openingOwner = owner
+    }
+
+    func cancelOpeningHistory(sessionId: V2SessionID, owner: UUID? = nil) {
+        guard let entry = entries[sessionId], owner == nil || entry.openingOwner == owner,
+              let task = entry.loadTask else { return }
+        entry.readVersion += 1
+        entry.loadTask = nil
+        task.cancel()
     }
 
     /// A page visit retains up to 100 cached records, including an older window.
     /// Explicit history loads may then accumulate additional 100-record pages.
     func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
-              timeout: Duration? = nil) async throws -> V2SessionData {
+              timeout: Duration? = nil, retryIncomplete: Bool = false) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
-        _ = try await load(sessionId: sessionId, summary: summary, timeout: timeout)
+        if retryIncomplete {
+            try requireNetwork()
+            _ = try await hydrate(entry, summary: summary, timeout: timeout)
+        } else {
+            _ = try await load(sessionId: sessionId, summary: summary, timeout: timeout)
+        }
         try Task.checkCancellation()
         try requireCurrent(entry)
         entry.readVersion += 1
@@ -440,6 +476,7 @@ final class V2SessionRepository {
     /// Cancellation plus identity checks prevent late responses from repopulating a signed-out cache.
     func reset() {
         prefetchID = nil
+        prefetchSessionID = nil
         persistenceTask?.cancel(); persistenceTask = nil
         let old = Array(entries.values)
         entries.removeAll()
@@ -735,6 +772,7 @@ private final class Entry {
     var projectionBarrier = Date.distantPast
     var connectionID = UUID()
     var observers: [UUID: AsyncStream<V2SessionObservation>.Continuation] = [:]
+    var openingOwner: UUID?
     var loadTask: Task<V2SessionData, Error>?
     var historyTask: Task<V2SessionData, Error>?
     var catalogTask: Task<V2SessionCatalogs, Error>?

@@ -23,6 +23,13 @@ struct SessionChatView: View, Equatable {
     @State private var toasts = ChatToastStore()
     @State private var pendingTakeover: Bool?
     @State private var hasStartedLoading = false
+    @State private var openingRetry = 0
+
+    private struct OpeningLoadKey: Equatable {
+        let sessionID: V2SessionID
+        let offline: Bool
+        let retry: Int
+    }
     @State private var keyboardRouter = ChatKeyboardDismissalRouter()
     @State private var titleVisibility = ChatTitleVisibility()
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -64,6 +71,15 @@ struct SessionChatView: View, Equatable {
                 if hasStartedLoading && model.isOpeningReady {
                     ChatTimelineView(model: model,
                         onAttachment: openAttachment, onFile: openFile)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            if let preview = model.retainedOpeningPreview, let text = preview.text {
+                                ScrollView { openingPreviewText(preview, text: text).padding(16) }
+                                    .frame(maxHeight: 150)
+                            }
+                            if model.openingError != nil && model.needsReadableHistory {
+                                openingFeedback.padding(8)
+                            }
+                        }
                 } else {
                     Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -75,7 +91,11 @@ struct SessionChatView: View, Equatable {
                         }.allowsHitTesting(false)
                     }
                 }
-                .overlay { if !model.isOpeningReady { openingMask } }
+                .overlay {
+                    if !model.isOpeningReady || (!hasStartedLoading && model.retainedOpeningPreview != nil) {
+                        openingMask
+                    }
+                }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
                         SessionInteractionDock(chat: model,
@@ -161,16 +181,14 @@ struct SessionChatView: View, Equatable {
         }
         .sidebarDrawerSettledTask(id: hasStartedLoading) { settled in
             guard !hasStartedLoading, settled else { return }
-            // Show feedback immediately, but let the drawer's completed
-            // animation and the selection's final layout leave the main thread.
-            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            // Keep the expensive timeline layout out of the drawer animation.
             guard !Task.isCancelled else { return }
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) { hasStartedLoading = true }
         }
-        .task(id: hasStartedLoading) {
-            guard hasStartedLoading else { return }
+        .task(id: OpeningLoadKey(sessionID: session.id,
+                                 offline: session.network.availability == .offline, retry: openingRetry)) {
             await model.prepareOpening(summary: sessionSummary, showPreview: true)
         }
         .task(id: model.isOpeningReady) {
@@ -223,12 +241,10 @@ struct SessionChatView: View, Equatable {
     private var openingMask: some View {
         ZStack {
             Color(uiColor: .systemBackground)
-            if let preview = model.openingPreview, let text = preview.text, !text.isEmpty {
+            if let preview = model.retainedOpeningPreview, let text = preview.text {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text(verbatim: preview.truncated ? text + "…" : text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                        openingPreviewText(preview, text: text)
                         openingFeedback
                             .frame(maxWidth: .infinity)
                     }
@@ -242,12 +258,18 @@ struct SessionChatView: View, Equatable {
         .transition(.identity)
     }
 
+    private func openingPreviewText(_ preview: V2SessionOpeningPreview, text: String) -> some View {
+        Text(verbatim: preview.truncated ? text + "…" : text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+    }
+
     private var openingFeedback: some View {
         VStack(spacing: 12) {
-            if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
+            if let error = model.openingError, !model.timeline.hasPresentedSnapshot || model.needsReadableHistory {
                 Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button(String(localized: "重试")) {
-                    Task { await model.prepareOpening(summary: sessionSummary, showPreview: true) }
+                    openingRetry += 1
                 }
             } else {
                 ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
