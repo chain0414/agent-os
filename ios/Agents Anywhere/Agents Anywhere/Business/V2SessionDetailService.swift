@@ -7,7 +7,7 @@ struct V2SessionDetailService {
     var openingTimeout: Duration = .seconds(8)
 
     func openingPreview(sessionId: V2SessionID) async throws -> V2SessionOpeningPreview {
-        try await withOpeningDeadline(timeout: .milliseconds(1400)) {
+        try await withOpeningDeadline() {
             try await sessionAPI.openingPreview(sessionId: sessionId)
         }
     }
@@ -45,7 +45,7 @@ struct V2SessionDetailService {
         guard timeline.sessionId == sessionId else { throw HTTPError.invalidResponse }
         // A dense tool tail can hide the most recent message beyond the small page.
         if timeline.hasMore, timeline.items.count == openingLimit,
-           !timeline.items.contains(where: { $0.type == .message && $0.isVisibleInChat }) {
+           !timeline.items.contains(where: { $0.hasOpeningMessage }) {
             timeline = try await latestItems(sessionId: sessionId)
         }
         // Read metadata after the timeline cursor so recovery can replay every

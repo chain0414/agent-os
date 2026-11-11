@@ -18,7 +18,7 @@
 
 ### iOS
 
-- 打开会话时优先显示已有历史，无缓存时先显示最近一条已同步消息的正文再补齐时间线，首次加载超时时可重试，并在非计量网络下预加载少量常用会话的消息。（[#3](https://github.com/chain0414/agent-os/pull/3)）
+- 点击会话后立即读取已有历史，无缓存时优先显示最近一条已同步消息，历史补齐慢或失败时保留已显示的正文，首次加载超时仍可重试。（[#3](https://github.com/chain0414/agent-os/pull/3)）
 
 - iPhone 主屏幕上的应用名称为「Agent OS」。（[#2](https://github.com/chain0414/agent-os/pull/2)）
 

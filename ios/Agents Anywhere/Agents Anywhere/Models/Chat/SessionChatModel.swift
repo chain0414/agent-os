@@ -20,6 +20,21 @@ final class SessionChatModel {
     var isOpeningReady: Bool { isOpeningPrepared && timeline.hasPresentedSnapshot }
     private(set) var openingError: String?
     private(set) var openingPreview: V2SessionOpeningPreview?
+    var retainedOpeningPreview: V2SessionOpeningPreview? {
+        guard let preview = openingPreview, let text = preview.text,
+              text.contains(where: { !$0.isWhitespace }) else { return nil }
+        return preview
+    }
+    var needsReadableHistory: Bool {
+        session.hasOlderItems && !timeline.rows.contains { $0.value.hasOpeningMessage }
+    }
+    @ObservationIgnored private var openingGeneration = 0
+
+    private enum OpeningResult: Sendable {
+        case preview(V2SessionOpeningPreview?)
+        case history(Result<V2SessionData, Error>)
+        case deadline
+    }
     private(set) var responseRevision = 0
     private(set) var commands: [V2RuntimeCommand] = []
     private(set) var isLoadingCommands = false
@@ -238,38 +253,126 @@ final class SessionChatModel {
         commandFailure = CommandFeedback(title: String(localized: "无法执行指令"), message: message)
     }
 
-    func prepareOpening(summary: V2SessionMeta? = nil, showPreview: Bool = false) async {
-        // Compact/split replacement creates a new view owner, not a fresh
-        // page visit. Preserve the loaded window containing the reading anchor.
+    func prepareOpening(summary: V2SessionMeta? = nil, showPreview: Bool = false,
+                        firstScreenTimeout: Duration = .seconds(8)) async {
         if session.isValid, timeline.hasPresentedSnapshot, !session.readingAnchor.followsBottom {
             isOpeningPrepared = true
             return
         }
         if !timeline.hasPresentedSnapshot { isOpeningPrepared = false }
         openingError = nil
-        let started = ContinuousClock.now
-        if showPreview, openingPreview == nil, !timeline.hasPresentedSnapshot {
-            openingPreview = await repository.openingPreviewIfUncached(sessionId: session.id)
-            guard session.isValid, !Task.isCancelled else { return }
+        openingGeneration += 1
+        let generation = openingGeneration
+        let id = session.id
+        let owner = UUID()
+        repository.beginOpening(sessionId: id, owner: owner)
+        let deadline = ContinuousClock.now.advanced(by: firstScreenTimeout)
+        await repository.restoreCachedSession(id: id)
+        guard canApplyOpening(generation) else { return }
+
+        let cached = repository.cached(sessionId: id)
+        if !showPreview || cached.map({ !$0.hasOlderItems || $0.items.contains(where: \.hasOpeningMessage) }) == true {
+            do {
+                let data = try await repository.open(sessionId: id, summary: summary)
+                guard canApplyOpening(generation) else { return }
+                presentOpening(data)
+            } catch {
+                guard canApplyOpening(generation) else { return }
+                showOpeningError(error)
+            }
+            return
         }
-        do {
-            // The timeline can display a cached window while it fetches newer records.
-            let timeout: Duration? = showPreview
-                ? (openingPreview?.text?.isEmpty == false
-                    ? .seconds(35) : max(.zero, .seconds(8) - started.duration(to: .now)))
-                : nil
-            _ = try await repository.open(sessionId: session.id, summary: summary, timeout: timeout)
-        } catch {
-            guard !Task.isCancelled else { return }
-            openingError = (error as? URLError)?.code == .timedOut
-                ? String(localized: "加载消息超时，请重试。")
-                : error.localizedDescription
+
+        await withTaskCancellationHandler {
+            await withTaskGroup(of: OpeningResult.self) { group in
+                let hadPreview = retainedOpeningPreview != nil
+                if !hadPreview {
+                    group.addTask { @MainActor [repository] in
+                        .preview(await repository.openingPreviewIfNeeded(sessionId: id))
+                    }
+                }
+                group.addTask { @MainActor [repository] in
+                    do {
+                        if !hadPreview { try await Task.sleep(for: .milliseconds(200)) }
+                        return .history(.success(try await repository.open(
+                            sessionId: id, summary: summary, timeout: .seconds(35), retryIncomplete: cached != nil)))
+                    } catch {
+                        return .history(.failure(error))
+                    }
+                }
+                group.addTask {
+                    try? await ContinuousClock().sleep(until: deadline)
+                    return .deadline
+                }
+
+                var previewFinished = hadPreview
+                var historyFinished = false
+                var historyError: Error?
+                while let result = await group.next(), canApplyOpening(generation) {
+                    switch result {
+                    case let .preview(preview):
+                        previewFinished = true
+                        if let preview, preview.text?.isEmpty == false { openingPreview = preview }
+                    case let .history(.success(data)):
+                        historyFinished = true
+                        presentOpening(data)
+                        // The page can become usable immediately; the small
+                        // read can still bring in a newer message absent here.
+                    case let .history(.failure(error)):
+                        historyError = error
+                    case .deadline:
+                        if retainedOpeningPreview == nil && (!isOpeningReady || needsReadableHistory) {
+                            showOpeningError(URLError(.timedOut))
+                            repository.cancelOpeningHistory(sessionId: id, owner: owner)
+                            group.cancelAll()
+                            return
+                        }
+                    }
+                    if previewFinished, let historyError {
+                        showOpeningError(historyError)
+                        group.cancelAll()
+                        return
+                    }
+                    if previewFinished && historyFinished {
+                        if retainedOpeningPreview == nil && needsReadableHistory {
+                            showOpeningError(URLError(.timedOut))
+                        }
+                        group.cancelAll()
+                        return
+                    }
+                }
+                group.cancelAll()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.openingGeneration == generation else { return }
+                self.repository.cancelOpeningHistory(sessionId: id, owner: owner)
+            }
         }
-        guard session.isValid, !Task.isCancelled else { return }
-        if let data = repository.cached(sessionId: session.id) {
-            timeline.presentOpening(data.items, pendingMessages: session.pendingMessages)
-            openingPreview = nil
-        }
+    }
+
+    private func canApplyOpening(_ generation: Int) -> Bool {
+        session.isValid && !Task.isCancelled && openingGeneration == generation
+    }
+
+    private func presentOpening(_ data: V2SessionData) {
+        timeline.presentOpening(data.items, pendingMessages: session.pendingMessages)
+        isOpeningPrepared = true
+    }
+
+    func finishPreviewHandoff(visible message: V2TimelineItem) {
+        guard isOpeningReady, message.sessionId == session.id, message.hasOpeningMessage,
+              let preview = retainedOpeningPreview, let text = preview.text else { return }
+        let prefix = TimelineText.message(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = message.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prefix.isEmpty, preview.truncated ? candidate.hasPrefix(prefix) : candidate == prefix else { return }
+        openingPreview = nil
+    }
+
+    private func showOpeningError(_ error: Error) {
+        openingError = (error as? URLError)?.code == .timedOut
+            ? String(localized: "加载消息超时，请重试。")
+            : error.localizedDescription
         isOpeningPrepared = true
     }
 

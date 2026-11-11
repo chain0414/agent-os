@@ -358,3 +358,5 @@ Do not block the runtime protocol migration on terminal endpoint consolidation.
 `GET /api/v2/sessions/{sessionId}/opening-preview` 需要与历史接口相同的会话读取权限。返回 `{"text":"…","truncated":true}`，其中 `text` 是 PostgreSQL 中最近一条可见对话消息去除开头空白后的前 1200 个 Unicode 字符。跳过空正文、隐藏记录和自动化控制记录。没有符合条件的记录时返回 `{"text":null,"truncated":false}`。响应上限为 8 KiB。
 
 客户端可先显示这段正文，再加载完整的最新时间线。完整时间线负责建立事件游标、合并后续事件和写入本地归档。预览读已持久化的数据，暂存的实时更新由完整时间线和事件恢复补齐。未提供此端点的 Server 继续使用已有历史接口。
+
+`GET /api/v2/sessions/{sessionId}/timeline` 的 JSON 响应达到 1 KiB 且请求允许 `gzip` 时，Server 可压缩响应体，并返回 `Content-Encoding: gzip` 和 `Vary: Accept-Encoding`。客户端解压后使用相同的 JSON 和游标。首屏预览保持原样返回。两条接口的成功响应均包含 `Server-Timing: app;dur=…`，以毫秒记录应用从开始处理请求到响应就绪的时间，包含鉴权、读库、序列化及适用的压缩，不包含网络传输，也不包含用户或会话标识。
