@@ -12,6 +12,7 @@ struct AccountSettingsSheet: View {
     @State private var toasts = ChatToastStore()
     @State private var drafts = AccountSettingsDrafts()
     @State private var confirmsDiscard = false
+    @State private var allowsAccountEdits = false
 
     var body: some View {
         NavigationStack {
@@ -30,18 +31,20 @@ struct AccountSettingsSheet: View {
                         }.padding(.vertical, 12)
                     }.listRowSeparator(.hidden)
 
-                    Section(String(localized: "Account")) {
-                        NavigationLink { AccountIdentitySettingsView(mode: .nickname, draft: $drafts.nickname) } label: {
-                            SettingsRow(title: String(localized: "Nickname"), symbol: "person.text.rectangle", value: me.displayName)
-                        }
-                        NavigationLink { AccountIdentitySettingsView(mode: .email, draft: $drafts.email) } label: {
-                            SettingsRow(title: String(localized: "Email"), symbol: "envelope", value: me.email)
-                        }
-                        NavigationLink { AvatarSettingsView(draft: $drafts.avatar) } label: {
-                            SettingsRow(title: String(localized: "Profile photo"), symbol: "person.crop.circle")
-                        }
-                        NavigationLink { PasswordSettingsView(draft: $drafts.password) } label: {
-                            SettingsRow(title: String(localized: "Password"), symbol: "key")
+                    if allowsAccountEdits {
+                        Section(String(localized: "Account")) {
+                            NavigationLink { AccountIdentitySettingsView(mode: .nickname, draft: $drafts.nickname) } label: {
+                                SettingsRow(title: String(localized: "Nickname"), symbol: "person.text.rectangle", value: me.displayName)
+                            }
+                            NavigationLink { AccountIdentitySettingsView(mode: .email, draft: $drafts.email) } label: {
+                                SettingsRow(title: String(localized: "Email"), symbol: "envelope", value: me.email)
+                            }
+                            NavigationLink { AvatarSettingsView(draft: $drafts.avatar) } label: {
+                                SettingsRow(title: String(localized: "Profile photo"), symbol: "person.crop.circle")
+                            }
+                            NavigationLink { PasswordSettingsView(draft: $drafts.password) } label: {
+                                SettingsRow(title: String(localized: "Password"), symbol: "key")
+                            }
                         }
                     }
                 }
@@ -98,6 +101,12 @@ struct AccountSettingsSheet: View {
             .navigationTitle(String(localized: "Settings")).navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseToolbar(disabled: isWorking, action: close) }
             .refreshable { _ = await appState.refreshAccount() }
+            .task(id: appState.serverURL) {
+                allowsAccountEdits = false
+                if let config = try? await appState.accountAuthConfig(), !Task.isCancelled {
+                    allowsAccountEdits = config.devkit?.managedOnly != true
+                }
+            }
             .alert(String(localized: "Sign out?"), isPresented: $confirmsSignOut) {
                 Button(String(localized: "Cancel"), role: .cancel) {}
                 Button(String(localized: "Sign out"), role: .destructive, action: signOut)

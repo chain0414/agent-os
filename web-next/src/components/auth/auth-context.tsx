@@ -333,17 +333,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = React.useCallback(
     async (input: { email: string; password: string }, useDevKit = false) => {
+      const useProjectAuth = useDevKit || devkit?.managedOnly === true
       setLoading(true)
       setError(null)
       try {
-        if (useDevKit) {
+        if (useProjectAuth) {
           if (!devkit) throw new Error(t("devkit.signInFailed"))
           await finishAuth(await authApi.loginWithDevKit(devkit, input))
         } else {
           await finishAuth(await authApi.login(input))
         }
       } catch (err) {
-        setError(useDevKit ? t("devkit.signInFailed") : err instanceof Error ? err.message : t("errors.loginFailed"))
+        if (useProjectAuth) {
+          setError(t(devkit?.managedOnly ? "errors.loginFailed" : "devkit.signInFailed"))
+        } else {
+          setError(err instanceof Error ? err.message : t("errors.loginFailed"))
+        }
         throw err
       } finally {
         setLoading(false)
@@ -363,7 +368,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { accessToken } = await client.signInWithOAuthPopup({ providerId: "feishu" })
       await finishAuth(await authApi.loginWithDevKitAccessToken(accessToken))
     } catch {
-      setError(t("devkit.feishuSignInFailed"))
+      setError(t(devkit.managedOnly ? "devkit.managedFeishuSignInFailed" : "devkit.feishuSignInFailed"))
     } finally {
       if (client) void client.signOut().catch(() => undefined)
       setLoading(false)

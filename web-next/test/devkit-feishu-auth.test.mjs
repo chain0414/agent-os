@@ -45,18 +45,23 @@ const config = { apiUrl: "https://devkit.example.test", publishableKey: "synthet
 const agentAccount = { userId: "agent-os-user", role: "admin", accessToken: "synthetic-agent-os-session" }
 const devkitAccessToken = "synthetic-devkit-session"
 
-async function render(t, component, { client, linkStatus = 204 } = {}) {
+async function render(t, component, { client, linkStatus = 204, managedOnly = false } = {}) {
   window.localStorage.clear()
   window.sessionStorage.clear()
   window.history.replaceState({}, "", "/#/login")
   globalThis.testDevKitFactory = () => client
   const exchanges = []
+  const passwordRequests = []
   t.mock.method(globalThis, "fetch", async (url, init) => {
     const path = new URL(url, window.location.origin).pathname
+    if (path === "/api/runtime/v1/auth/login") {
+      passwordRequests.push({ url, body: JSON.parse(init.body) })
+      return Response.json({ accessToken: devkitAccessToken })
+    }
     if (path.endsWith("/auth/config")) {
       return Response.json({
-        devkit: config, needsBootstrap: false, registrationOpen: false,
-        oauthEnabled: true, oauthProviderLabel: "Agent OS OAuth",
+        devkit: { ...config, managedOnly }, needsBootstrap: false, registrationOpen: false,
+        oauthEnabled: !managedOnly, oauthProviderLabel: managedOnly ? null : "Agent OS OAuth",
       })
     }
     if (path.endsWith("/auth/me")) return Response.json(agentAccount)
@@ -83,7 +88,7 @@ async function render(t, component, { client, linkStatus = 204 } = {}) {
     container.remove()
     delete globalThis.testDevKitFactory
   })
-  return { container, exchanges }
+  return { container, exchanges, passwordRequests }
 }
 
 function button(scope, label) {
@@ -185,3 +190,25 @@ for (const linkStatus of [204, 409]) {
     assert.equal(document.querySelector('[role="dialog"]'), null)
   })
 }
+
+
+test("managed login uses DevKit for the primary password action and shows one Feishu entry", async (t) => {
+  const credentials = { email: "original@example.test", password: "synthetic-password" }
+  const client = { providers: async () => [{ providerId: "feishu", flow: "popup" }] }
+  const { container, exchanges, passwordRequests } = await render(t, h(AuthProvider, null, h(LoginScreen)), {
+    client, managedOnly: true,
+  })
+  assert.ok(button(container, "使用飞书登录"))
+  assert.equal(button(container, "使用 DevKit 飞书登录"), undefined)
+  assert.equal(button(container, "使用 DevKit 登录"), undefined)
+  await fill(container, "#login-email", credentials.email)
+  await fill(container, "#login-password", credentials.password)
+  const submit = container.querySelector('button[type="submit"]')
+  assert.equal(submit.disabled, false)
+  await act(async () => submit.click())
+  assert.deepEqual(passwordRequests, [{
+    url: "https://devkit.example.test/api/runtime/v1/auth/login", body: credentials,
+  }])
+  assert.deepEqual(exchanges, [{ operation: "login", token: null, body: { accessToken: devkitAccessToken } }])
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("aa.session.v1")), agentAccount)
+})

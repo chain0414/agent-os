@@ -93,7 +93,7 @@ export function LoginScreen() {
             {loading ? t("login.signingIn") : t("login.submitWithEnter")}
           </Button>
 
-          {devkit ? (
+          {devkit && !devkit.managedOnly ? (
             <Button
               type="button"
               variant="outline"
@@ -113,7 +113,7 @@ export function LoginScreen() {
               disabled={loading}
               onClick={() => void loginWithDevKitFeishu()}
             >
-              {t("devkit.feishuSignIn")}
+              {t(devkit?.managedOnly ? "devkit.managedFeishuSignIn" : "devkit.feishuSignIn")}
             </Button>
           ) : null}
 

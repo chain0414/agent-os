@@ -1,7 +1,10 @@
-"""Project Auth links a second sign-in method to an existing Agent OS user."""
+"""Project Auth resolves an existing Agent OS user from a DevKit identity."""
 
 import asyncio
+import base64
+import hashlib
 import json
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -73,7 +76,7 @@ def test_linked_login_preserves_admin_and_works_with_mobile_exchange(project_aut
         user_id=original_id, provider="feishu", subject="ou_existing_feishu",
     ))
     assert client.get("/auth/config").json()["devkit"] == {
-        "apiUrl": "https://devkit.example.test", "publishableKey": "test-public-key",
+        "apiUrl": "https://devkit.example.test", "publishableKey": "test-public-key", "managedOnly": False,
     }
     assert client.post(LOGIN, json=BODY).status_code == 401
     assert client.post(LINK, json=BODY).status_code == 401
@@ -136,3 +139,102 @@ def test_rejects_other_realms_and_identity_reassignment(project_auth):
     assert client.post(LOGIN, json={"accessToken": "different-subject"}).status_code == 401
     del project_auth["project-test-access"]
     assert client.post(LOGIN, json=BODY).status_code == 401
+
+
+def test_managed_auth_keeps_original_ownership_and_disables_local_identity(project_auth, monkeypatch):
+    from agent_server.services.devkit_auth import load_devkit_auth
+
+    client = make_test_client()
+    original_headers = bearer(admin_token(client))
+    original_id = user_id(client, "user1")
+    device_id = create_device(client, original_headers)
+    project_id = create_project(client, original_headers, device_id, "Original workspace")
+    session_id = add_session(client, device_id, project_id, "Original session")
+    original_config = load_devkit_auth()
+    assert original_config is not None
+    assert asyncio.run(client.app.state.store.bind_devkit_identity(
+        user_id=original_id, scope=original_config.binding_scope(), subject=METADATA["subject"],
+    ))
+    monkeypatch.setenv("AGENT_SERVER_DEVKIT_AUTH", original_config.model_copy(
+        update={"managedOnly": True},
+    ).model_dump_json())
+
+    config = client.get("/auth/config").json()
+    assert config["devkit"]["managedOnly"] is True
+    assert all(config[name] is False for name in (
+        "emailVerificationRequired", "needsBootstrap", "registrationOpen",
+        "oauthRegistrationOpen", "oauthEnabled", "passwordResetEnabled",
+    ))
+    local_paths = (
+        ("POST", "/auth/password-salt"), ("POST", "/auth/register"),
+        ("POST", "/auth/login"), ("POST", LINK), ("POST", "/auth/email-code"),
+        ("PUT", "/auth/me/email"), ("PUT", "/auth/me/profile"),
+        ("GET", "/auth/oauth/start"), ("GET", "/auth/oauth/callback"),
+        ("POST", "/auth/oauth/finalize"), ("PUT", "/auth/me/avatar"),
+        ("DELETE", "/auth/me/avatar"), ("POST", "/auth/change-password"),
+        ("GET", "/admin/settings"), ("PATCH", "/admin/settings"), ("GET", "/admin/users"),
+        ("GET", "/admin/usage/report"), ("GET", "/admin/usage/live"),
+        ("POST", "/admin/users"), ("PATCH", f"/admin/users/{original_id}"),
+        ("DELETE", f"/admin/users/{original_id}"),
+    )
+    for method, path in local_paths:
+        response = client.request(method, path, headers=original_headers, json={})
+        assert response.status_code == 404, (method, path)
+        assert response.json()["detail"] == "This endpoint is disabled in DevKit managed mode"
+
+    login = client.post(LOGIN, json=BODY)
+    assert login.status_code == 200
+    assert login.json()["userId"] == original_id
+    assert login.json()["role"] == "admin"
+    managed_headers = bearer(login.json()["accessToken"])
+    assert client.get(f"/sessions/{session_id}/meta", headers=managed_headers).status_code == 200
+    assert client.get(f"/connectors/{device_id}", headers=managed_headers).status_code == 200
+    assert client.post("/auth/mobile-login/qr", headers=managed_headers).status_code == 200
+    assert asyncio.run(client.app.state.store.count_users()) == 1
+
+    verifier = "A" * 43
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    redirect = client.get(
+        "/auth/oauth/mobile/feishu",
+        params={"code_challenge": challenge, "state": "native_state"},
+        follow_redirects=False,
+    )
+    assert redirect.status_code == 302
+    location = urlsplit(redirect.headers["location"])
+    assert f"{location.scheme}://{location.netloc}" == original_config.appOrigin
+    route, _, params = location.fragment.partition("?")
+    assert route == "/mobile-oauth"
+    parsed_params = parse_qs(params)
+    assert parsed_params == {
+        "response_type": ["code"],
+        "client_id": ["agents-anywhere-mobile"],
+        "redirect_uri": ["agents-anywhere://oauth/callback"],
+        "code_challenge_method": ["S256"],
+        "code_challenge": [challenge],
+        "state": ["native_state"],
+    }
+    authorization = client.post("/oauth/authorize", headers=managed_headers, json={
+        key: values[0] for key, values in parsed_params.items()
+    })
+    assert authorization.status_code == 200
+    callback = parse_qs(urlsplit(authorization.json()["redirectUrl"]).query)
+    assert callback["state"] == ["native_state"]
+    exchanged = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": callback["code"][0],
+        "client_id": "agents-anywhere-mobile",
+        "redirect_uri": "agents-anywhere://oauth/callback",
+        "code_verifier": verifier,
+    })
+    assert exchanged.status_code == 200
+    mobile_headers = bearer(exchanged.json()["access_token"])
+    assert client.get("/auth/me", headers=mobile_headers).json()["userId"] == original_id
+
+
+@pytest.mark.parametrize("invalid_config", ["", "{", '{"managedOnly": true}'])
+def test_invalid_devkit_config_does_not_enable_local_auth(monkeypatch, invalid_config):
+    monkeypatch.setenv("AGENT_SERVER_DEVKIT_AUTH", invalid_config)
+    client = make_test_client()
+    assert client.get("/auth/config").status_code == 503
+    assert client.post("/auth/login", json={}).status_code == 503
+    assert client.post(LOGIN, json=BODY).status_code == 503

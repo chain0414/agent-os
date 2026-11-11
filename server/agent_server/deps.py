@@ -9,9 +9,9 @@ from agent_server.infra.connector_gateway import ConnectorGateway
 from agent_server.infra.connector_rpc import ConnectorRpcManager
 from agent_server.infra.fs_downloads import FsDownloadRelayManager
 from agent_server.infra.repositories.facade import Store
+from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.timeline_broker import TimelineBroker
 from agent_server.services.attachments import AttachmentService
-from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.services.catalogs import CatalogService
 from agent_server.services.connector_files import ConnectorFileService
 from agent_server.services.connector_ingest import ConnectorIngestService
@@ -19,6 +19,11 @@ from agent_server.services.connector_notifications import ConnectorNotificationS
 from agent_server.services.connector_realtime import ConnectorRealtimeService
 from agent_server.services.connector_shell import ConnectorShellService
 from agent_server.services.device_runtimes import DeviceRuntimeService
+from agent_server.services.devkit_auth import (
+    DevKitAuthConfig,
+    DevKitAuthUnavailable,
+    load_devkit_auth,
+)
 from agent_server.services.event_recovery import EventRecoveryService
 from agent_server.services.session_run import SessionRunService
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
@@ -26,6 +31,19 @@ from agent_server.services.terminal import TerminalService
 from agent_server.services.terminal_relay import TerminalRelayService
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 from agent_server.services.usage_events import UsageRecorder
+
+
+def configured_devkit_auth() -> DevKitAuthConfig | None:
+    try:
+        return load_devkit_auth()
+    except DevKitAuthUnavailable:
+        raise HTTPException(status_code=503, detail="DevKit Auth is unavailable") from None
+
+
+def require_local_auth() -> None:
+    config = configured_devkit_auth()
+    if config and config.managedOnly:
+        raise HTTPException(status_code=404, detail="This endpoint is disabled in DevKit managed mode")
 
 
 def get_store(conn: HTTPConnection) -> Store:

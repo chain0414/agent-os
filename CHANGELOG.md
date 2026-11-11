@@ -16,7 +16,9 @@
 
 ### Web 与 Desktop 界面
 
-- Web 账户设置可以注册、验证和绑定 DevKit 邮箱，启用 DevKit 飞书的实例也可以为同一账号添加飞书登录。（[#5](https://github.com/chain0414/agent-os/pull/5)）
+- DevKit 托管的实例使用 DevKit 邮箱和飞书登录，在 DevKit 管理用户，并在 Agent OS 保留原设备和会话。
+
+- 自托管实例可选用 DevKit 混合接入，在 Web 账户设置添加 DevKit 登录方式。（[#5](https://github.com/chain0414/agent-os/pull/5)）
 
 - 自托管实例可启用飞书登录，首次绑定时用现有邮箱和密码确认账号，之后可以直接用已绑定的飞书身份登录。（[#1](https://github.com/chain0414/agent-os/pull/1)）
 

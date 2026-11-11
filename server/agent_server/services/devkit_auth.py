@@ -44,6 +44,7 @@ class DevKitAuthConfig(AuthScope):
     apiUrl: str
     appOrigin: str
     publishableKey: str = Field(pattern=r"^[!-~]{1,512}$")
+    managedOnly: bool = Field(default=False, strict=True)
 
     @field_validator("apiUrl", "appOrigin")
     @classmethod
@@ -77,7 +78,7 @@ class SessionMetadata(AuthScope):
 
 def load_devkit_auth() -> DevKitAuthConfig | None:
     value = os.environ.get("AGENT_SERVER_DEVKIT_AUTH")
-    if not value:
+    if value is None:
         return None
     try:
         return DevKitAuthConfig.model_validate_json(value)

@@ -8,6 +8,7 @@ enum UserRole: String, Codable, Hashable {
 struct DevKitAuthConfig: Decodable {
     let apiUrl: String
     let publishableKey: String
+    let managedOnly: Bool?
 }
 
 struct AuthConfig: Decodable {

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_server.core.models import UsageLiveResponse, UsageReportResponse
-from agent_server.deps import get_rpc, get_store, require_admin
+from agent_server.deps import get_rpc, get_store, require_admin, require_local_auth
 from agent_server.infra.connector_rpc import ConnectorRpcManager
 from agent_server.infra.repositories.facade import Store
 from agent_server.services.usage_report import UsageReportError, UsageReportService
@@ -13,7 +13,7 @@ from agent_server.services.usage_report import UsageReportError, UsageReportServ
 router = APIRouter(
     prefix="/admin/usage",
     tags=["admin-usage"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_admin), Depends(require_local_auth)],
 )
 
 DEFAULT_RANGE_DAYS = 30
