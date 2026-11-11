@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from agent_server.infra.db.schema import devkit_auth_bindings
 from agent_server.infra.repositories.email_accounts import EmailAccountRepositoryMixin
 from agent_server.infra.repositories.store_support import *
 
@@ -98,6 +101,40 @@ class UserRepositoryMixin(EmailAccountRepositoryMixin):
             return None
         return _user_from_row(row)
 
+
+    async def bind_devkit_identity(self, *, user_id: str, scope: str, subject: str) -> bool:
+        async with self._engine.begin() as conn:
+            active_user_id = await conn.scalar(
+                select(users_t.c.id)
+                .where(users_t.c.id == user_id, users_t.c.disabled == 0)
+                .with_for_update()
+            )
+            if active_user_id is None:
+                return False
+            await conn.execute(
+                pg_insert(devkit_auth_bindings)
+                .values(scope=scope, subject=subject, user_id=user_id)
+                .on_conflict_do_nothing()
+            )
+            owner = await conn.scalar(
+                select(devkit_auth_bindings.c.user_id)
+                .where(devkit_auth_bindings.c.scope == scope, devkit_auth_bindings.c.subject == subject)
+            )
+            return owner == user_id
+
+    async def devkit_user_for_subject(self, *, scope: str, subject: str) -> UserView | None:
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(users_t)
+                .join(devkit_auth_bindings, devkit_auth_bindings.c.user_id == users_t.c.id)
+                .where(
+                    devkit_auth_bindings.c.scope == scope,
+                    devkit_auth_bindings.c.subject == subject,
+                    users_t.c.disabled == 0,
+                )
+            )
+            row = result.mappings().one_or_none()
+            return _user_from_row(row) if row else None
 
     async def oauth_user_for_subject(self, *, provider: str, subject: str) -> UserView | None:
         provider = (provider or "").strip().lower()

@@ -1,6 +1,20 @@
 export type UserRole = "admin" | "member";
 
+export type DevKitAuthConfig = {
+  apiUrl: string;
+  publishableKey: string;
+};
+
+export interface DevKitBrowserClient {
+  providers(): Promise<readonly { providerId: string; flow: "password" | "popup" }[]>;
+  signInWithPassword(input: { email: string; password: string }): Promise<{ accessToken: string }>;
+  signInWithOAuthPopup(input: { providerId: "feishu"; signal?: AbortSignal }): Promise<{ accessToken: string }>;
+  linkOAuthWithPopup(input: { providerId: "feishu"; signal?: AbortSignal }): Promise<void>;
+  signOut(): Promise<void>;
+}
+
 export type AuthConfig = {
+  devkit?: DevKitAuthConfig | null;
   needsBootstrap: boolean;
   emailVerificationRequired: boolean;
   registrationOpen: boolean;

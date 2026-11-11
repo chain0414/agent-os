@@ -21,6 +21,26 @@
       }
     }
   },
+  "Sign in with DevKit": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "使用 DevKit 登录"
+        }
+      }
+    }
+  },
+  "DevKit sign-in failed.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "DevKit 登录失败。"
+        }
+      }
+    }
+  },
   "Sign in with Feishu": {
     "localizations": {
       "zh-Hans": {

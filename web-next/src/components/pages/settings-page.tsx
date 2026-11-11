@@ -33,6 +33,7 @@ import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { DevKitAccountLink } from "@/components/pages/devkit-account-link"
 import { AccountProfileCard } from "@/components/pages/account-profile-card"
 import { accountDisplayName } from "@/features/auth/account-profile"
 import { MobileConnectionDialog } from "@/components/pages/mobile-signin-panel"
@@ -63,6 +64,7 @@ function AccountTab({
   onMeChange: (me: AuthMe) => void
 }) {
   const t = useTranslations("pages.settings")
+  const { devkit, devkitFeishuAvailable } = useAuth()
   const [passwordOpen, setPasswordOpen] = React.useState(false)
   const [avatarOpen, setAvatarOpen] = React.useState(false)
   const [clearingAvatar, setClearingAvatar] = React.useState(false)
@@ -139,6 +141,7 @@ function AccountTab({
       />
 
       <AccountProfileCard me={me} token={token} onMeChange={onMeChange} />
+      {devkit ? <DevKitAccountLink config={devkit} token={token} feishuAvailable={devkitFeishuAvailable} /> : null}
 
       <ResetPasswordDialog open={passwordOpen} token={token} onOpenChange={setPasswordOpen} />
       <AvatarCropDialog

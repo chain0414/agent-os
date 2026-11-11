@@ -51,6 +51,42 @@ struct APIClient {
         )
     }
 
+    func loginWithDevKit(config: DevKitAuthConfig, email: String, password: String) async throws -> AuthResponse {
+        guard
+            let endpoint = URLComponents(string: config.apiUrl),
+            endpoint.scheme == "https", endpoint.host != nil,
+            endpoint.user == nil, endpoint.password == nil,
+            endpoint.path.isEmpty, endpoint.query == nil, endpoint.fragment == nil,
+            let url = URL(string: config.apiUrl + "/api/runtime/v1/auth/login"),
+            var origin = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
+        else { throw APIClientError.invalidResponse }
+
+        origin.path = ""
+        origin.query = nil
+        origin.fragment = nil
+        guard let appOrigin = origin.string else { throw APIClientError.invalidServerURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(config.publishableKey, forHTTPHeaderField: "X-DevKit-Key")
+        request.setValue(appOrigin, forHTTPHeaderField: "Origin")
+        request.httpBody = try JSONEncoder().encode([
+            "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": password,
+        ])
+        let (data, response) = try await session.data(for: request, delegate: NoAuthRedirects())
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let tokens = try? JSONDecoder().decode(DevKitLoginToken.self, from: data),
+              tokens.accessToken.range(of: #"^[A-Za-z0-9._~-]{1,8192}$"#, options: .regularExpression) != nil
+        else {
+            throw APIClientError.server(status: 401, detail: String(localized: "DevKit sign-in failed."))
+        }
+        return try await self.request(
+            "/auth/devkit/login", method: "POST", body: ["accessToken": tokens.accessToken],
+        )
+    }
+
     /// Public, unauthenticated; returns nil when the server has no enabled announcement.
     func announcement() async throws -> PublicAnnouncement? {
         let response: PublicAnnouncementResponse = try await request("/announcement")
@@ -158,6 +194,22 @@ struct APIClient {
         } catch let error as DecodingError {
             throw APIClientError.decoding(error.v2Description)
         }
+    }
+}
+
+private struct DevKitLoginToken: Decodable {
+    let accessToken: String
+}
+
+private final class NoAuthRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void,
+    ) {
+        completionHandler(nil)
     }
 }
 

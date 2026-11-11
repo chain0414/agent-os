@@ -66,6 +66,8 @@ Inside the container:
 `docker/Dockerfile` builds the `web-next` static export in an intermediate
 stage and copies it into the final `server` image.
 
+For an image with DevKit Feishu sign-in, see the [pinned SDK build](../docs/api/devkit-auth.md#web-飞书试点).
+
 Build and run the PostgreSQL-backed service manually:
 
 ```bash

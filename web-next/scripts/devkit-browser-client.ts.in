@@ -1,0 +1,18 @@
+import { ProjectAuthClient, type ProjectAuthSession } from "@devkit/client"
+import type { DevKitAuthConfig, DevKitBrowserClient } from "./types"
+
+export type { DevKitBrowserClient } from "./types"
+
+export function createDevKitBrowserClient(config: DevKitAuthConfig): DevKitBrowserClient {
+  let session: ProjectAuthSession | undefined
+  return new ProjectAuthClient({
+    endpoint: config.apiUrl,
+    publishableKey: config.publishableKey,
+    fetch: globalThis.fetch.bind(globalThis),
+    sessionStore: {
+      load: () => session,
+      save: next => { session = next },
+      clear: () => { session = undefined },
+    },
+  })
+}

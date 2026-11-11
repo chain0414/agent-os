@@ -6,7 +6,17 @@ import UIKit
 
 @MainActor @Observable
 final class AppState {
-    static let defaultServerURL = URL(string: "https://os.begrow.ai")!
+    static let defaultServerURL: URL = {
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "AgentOSDefaultServerURL") as? String,
+           let components = URLComponents(string: configured),
+           components.scheme == "https", components.host != nil,
+           components.user == nil, components.password == nil,
+           components.query == nil, components.fragment == nil,
+           let url = components.url {
+            return url
+        }
+        return URL(string: "https://os.begrow.ai")!
+    }()
 
     enum Route {
         case loading
@@ -174,13 +184,18 @@ final class AppState {
         }
     }
 
-    func login(serverURL: URL, email: String, password: String) async {
+    func login(serverURL: URL, email: String, password: String, devkit: DevKitAuthConfig? = nil) async {
         authError = nil
         isWorking = true
         defer { isWorking = false }
         do {
             let client = APIClient(serverURL: serverURL)
-            let auth = try await client.login(email: email, password: password)
+            let auth: AuthResponse
+            if let devkit {
+                auth = try await client.loginWithDevKit(config: devkit, email: email, password: password)
+            } else {
+                auth = try await client.login(email: email, password: password)
+            }
             let profile = try await client.me(token: auth.accessToken)
             try Task.checkCancellation()
             try saveSession(serverURL: serverURL, token: auth.accessToken)

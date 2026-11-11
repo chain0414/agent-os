@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from agent_server.core.api_namespace import api_v2_path
 from agent_server.core.auth import (
@@ -28,6 +28,7 @@ from agent_server.core.models import (
     AuthResponse,
     BindEmailRequest,
     ChangePasswordRequest,
+    DevKitPublicAuthConfig,
     EmailCodeRequest,
     EmailCodeResponse,
     MobileLoginConfirmRequest,
@@ -54,6 +55,13 @@ from agent_server.infra.repositories.email_accounts import (
     normalize_email,
 )
 from agent_server.infra.repositories.facade import Store
+from agent_server.services.devkit_auth import (
+    DevKitAuthConfig,
+    DevKitAuthUnavailable,
+    DevKitSessionRejected,
+    load_devkit_auth,
+    verify_devkit_session,
+)
 from agent_server.services.email_delivery import (
     EmailDeliveryError,
     get_email_settings,
@@ -115,7 +123,12 @@ async def auth_config(
         expires_at = await _setup_token(request).current_expires_at_iso()
     oauth_config = await db.get_oauth_provider_config()
     email_enabled = bool((await get_email_settings(db)).get("enabled"))
+    try:
+        config = load_devkit_auth()
+    except DevKitAuthUnavailable:
+        config = None
     return AuthConfigResponse(
+        devkit=DevKitPublicAuthConfig(apiUrl=config.apiUrl, publishableKey=config.publishableKey) if config else None,
         emailVerificationRequired=email_enabled,
         needsBootstrap=needs_bootstrap,
         registrationOpen=await db.is_registration_open(),
@@ -206,6 +219,54 @@ async def auth_login(payload: AuthRequest, db: Store = Depends(get_store)) -> Au
         raise _value_error_to_http(exc) from exc
     if user is None:
         raise HTTPException(status_code=401, detail="invalid credentials")
+    return _auth_response(user)
+
+
+class DevKitAuthRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    accessToken: SecretStr
+
+
+async def _devkit_identity(payload: DevKitAuthRequest) -> tuple[DevKitAuthConfig, str]:
+    try:
+        config = load_devkit_auth()
+        if config is None:
+            raise HTTPException(status_code=404, detail="DevKit login is not enabled")
+        access_token = payload.accessToken.get_secret_value()
+        if not re.fullmatch(r"[A-Za-z0-9._~-]{1,8192}", access_token):
+            raise DevKitSessionRejected
+        return config, await verify_devkit_session(config, access_token)
+    except DevKitSessionRejected:
+        raise HTTPException(status_code=401, detail="DevKit session rejected") from None
+    except DevKitAuthUnavailable:
+        raise HTTPException(status_code=503, detail="DevKit Auth is unavailable") from None
+
+
+@router.post("/auth/devkit/link", status_code=204)
+async def link_devkit_auth(
+    payload: DevKitAuthRequest,
+    user: Annotated[UserView, Depends(current_user)],
+    db: Annotated[Store, Depends(get_store)],
+) -> Response:
+    config, subject = await _devkit_identity(payload)
+    if not await db.bind_devkit_identity(
+        user_id=user.userId, scope=config.binding_scope(), subject=subject,
+    ):
+        raise HTTPException(status_code=409, detail="DevKit account binding conflicts with an existing account")
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/auth/devkit/login", response_model=AuthResponse)
+async def login_devkit_auth(
+    payload: DevKitAuthRequest,
+    response: Response,
+    db: Annotated[Store, Depends(get_store)],
+) -> AuthResponse:
+    config, subject = await _devkit_identity(payload)
+    user = await db.devkit_user_for_subject(scope=config.binding_scope(), subject=subject)
+    if user is None:
+        raise HTTPException(status_code=401, detail="DevKit account is not linked to an active Agent OS user")
+    response.headers["Cache-Control"] = "no-store"
     return _auth_response(user)
 
 
