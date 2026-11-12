@@ -86,6 +86,7 @@ final class V2SessionModel: Identifiable {
     private(set) var connection = V2SessionConnectionState.inactive
     private(set) var network = V2NetworkStatus()
     private(set) var failure: V2ClientFailure?
+    private(set) var olderHistoryFeedback: OlderHistoryFeedback?
     private(set) var hasOlderItems = false
     private(set) var hasNewerItems = false
     private(set) var isLoading = false
@@ -137,12 +138,43 @@ final class V2SessionModel: Identifiable {
         catch { if isValid { failure = V2ClientFailure(error) } }
     }
 
-    func loadOlder() async {
+    enum OlderHistoryFeedback: Equatable {
+        case offline, timeout, authentication, failed, recordsOnly
+
+        var title: String {
+            switch self {
+            case .offline: String(localized: "网络已断开，无法加载更早消息")
+            case .timeout: String(localized: "加载更早消息超时")
+            case .authentication: String(localized: "登录已失效，请重新登录")
+            case .failed: String(localized: "未能加载更早消息，当前消息已保留")
+            case .recordsOnly: String(localized: "已补齐较早记录，继续查找正文")
+            }
+        }
+    }
+
+    func loadOlder(goal: V2OlderHistoryGoal = .readablePage) async {
         guard let repository, isValid, !isLoadingHistory else { return }
+        let before = timeline.first?.value.orderSeq
         isLoadingHistory = true
+        olderHistoryFeedback = nil
         defer { isLoadingHistory = false }
-        do { _ = try await repository.loadOlder(sessionId: id) }
-        catch { if isValid { failure = V2ClientFailure(error) } }
+        do {
+            let data = try await repository.loadOlder(sessionId: id, goal: goal)
+            guard isValid, !Task.isCancelled, data.hasOlderItems, let before else { return }
+            if !data.items.contains(where: { $0.orderSeq < before && $0.hasOpeningMessage }) {
+                olderHistoryFeedback = .recordsOnly
+            }
+        } catch {
+            guard isValid, !Task.isCancelled else { return }
+            if (error as? URLError)?.code == .timedOut { olderHistoryFeedback = .timeout }
+            else {
+                switch V2ClientFailure(error).kind {
+                case .offline: olderHistoryFeedback = .offline
+                case .authentication: olderHistoryFeedback = .authentication
+                default: olderHistoryFeedback = .failed
+                }
+            }
+        }
     }
 
     func loadLatest(shouldApply: () -> Bool = { true }) async {

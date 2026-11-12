@@ -6,6 +6,10 @@ nonisolated struct V2SessionCachePolicy {
     var catalogLifetime: TimeInterval = 30
 }
 
+enum V2OlderHistoryGoal {
+    case singlePage, readablePage, openingTurn
+}
+
 /// One repository per authenticated server/account. Views observe values and invoke
 /// operations; this layer owns request coalescing, bounded caches and live recovery.
 @MainActor
@@ -121,8 +125,7 @@ final class V2SessionRepository {
         task.cancel()
     }
 
-    /// A page visit retains up to 100 cached records, including an older window.
-    /// Explicit history loads may then accumulate additional 100-record pages.
+    /// Retain the latest cached page and the query for its latest reply.
     func open(sessionId: V2SessionID, summary: V2SessionMeta? = nil,
               timeout: Duration? = nil, retryIncomplete: Bool = false) async throws -> V2SessionData {
         let entry = entry(for: sessionId)
@@ -134,10 +137,7 @@ final class V2SessionRepository {
         }
         try Task.checkCancellation()
         try requireCurrent(entry)
-        entry.readVersion += 1
-        entry.historyTask?.cancel()
-        entry.historyTask = nil
-        if entry.projection?.limitToLatest(100) == true { emit(entry) }
+        if entry.historyTask == nil, entry.projection?.limitToLatest(100) == true { emit(entry) }
         return entry.projection!.data
     }
 
@@ -238,21 +238,49 @@ final class V2SessionRepository {
         return try await hydrate(entry)
     }
 
-    func loadOlder(sessionId: V2SessionID, limit: Int = 100) async throws -> V2SessionData {
+    func loadOlder(sessionId: V2SessionID, limit: Int = 100, goal: V2OlderHistoryGoal = .singlePage) async throws -> V2SessionData {
         try requireNetwork()
         _ = try await load(sessionId: sessionId)
         let entry = entry(for: sessionId)
         if let task = entry.historyTask { return try await task.value }
         guard let data = entry.projection?.data,
-              data.hasOlderItems, let before = data.items.first?.orderSeq else {
+              data.hasOlderItems else {
             return entry.projection!.data
         }
+        guard let before = data.items.first?.orderSeq else { throw HTTPError.invalidResponse }
+        if goal == .openingTurn, data.latestReply == nil || data.latestQueryIndex != nil { return data }
         let version = entry.readVersion
         let task = Task { [self] in
             defer { if entry.readVersion == version { entry.historyTask = nil } }
-            let page = try await detail.loadOlderItems(sessionId: sessionId, beforeOrderSeq: before, limit: limit)
-            try requireCurrent(entry, version: version)
-            entry.projection?.applyHistory(page)
+            var cursor = before
+            var items: [V2TimelineItem] = []
+            let deadline = ContinuousClock.now.advanced(by: .seconds(8))
+            var last: V2SessionTimelinePage?
+            var queryBoundary: Int?
+            for _ in 0..<(goal == .singlePage ? 1 : 4) {
+                let remaining = ContinuousClock.now.duration(to: deadline)
+                guard remaining > .zero else { throw URLError(.timedOut) }
+                let page = try await detail.loadOlderItems(sessionId: sessionId, beforeOrderSeq: cursor, limit: limit, timeout: remaining)
+                try requireCurrent(entry, version: version)
+                guard page.sessionId == sessionId,
+                      page.items.allSatisfy({ $0.sessionId == sessionId && $0.orderSeq < cursor }),
+                      !page.items.isEmpty || !page.hasMore else { throw HTTPError.invalidResponse }
+                last = page
+                items.append(contentsOf: page.items)
+                if goal == .openingTurn, let reply = data.latestReply,
+                   let query = page.items.last(where: reply.isPrecededByQuery) {
+                    queryBoundary = query.orderSeq
+                    break
+                }
+                guard page.hasMore, let next = page.items.map(\.orderSeq).min() else { break }
+                if goal == .readablePage && page.items.contains(where: \.hasOpeningMessage) { break }
+                cursor = next
+            }
+            guard let last else { throw HTTPError.invalidResponse }
+            let fetchedCount = items.count
+            if let queryBoundary { items.removeAll { $0.orderSeq < queryBoundary } }
+            entry.projection?.applyHistory(.init(sessionId: sessionId, items: items, nextSeq: last.nextSeq,
+                hasMore: last.hasMore || items.count < fetchedCount, serverTime: last.serverTime))
             emit(entry)
             return entry.projection!.data
         }

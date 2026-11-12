@@ -12490,6 +12490,91 @@
         }
       }
     },
+    "网络已断开，无法加载更早消息": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re offline. Earlier messages can’t load."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络已断开，无法加载更早消息"
+          }
+        }
+      }
+    },
+    "加载更早消息超时": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading earlier messages timed out."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载更早消息超时"
+          }
+        }
+      }
+    },
+    "登录已失效，请重新登录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your session expired. Sign in again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录已失效，请重新登录"
+          }
+        }
+      }
+    },
+    "未能加载更早消息，当前消息已保留": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier messages couldn’t load. The current messages are still available."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未能加载更早消息，当前消息已保留"
+          }
+        }
+      }
+    },
+    "已补齐较早记录，继续查找正文": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier activity loaded. Keep looking for messages."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已补齐较早记录，继续查找正文"
+          }
+        }
+      }
+    },
     "正在加载较早的消息…": {
       "extractionState": "manual",
       "localizations": {

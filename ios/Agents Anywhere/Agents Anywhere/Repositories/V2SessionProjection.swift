@@ -125,12 +125,12 @@ struct V2SessionProjection {
         // nextSeq is the server high watermark, not proof that intervening events were read.
     }
 
-    /// Opening starts from one page even if a previous visit loaded more. Keep
-    /// the event cursor and newer-window flag; this only narrows durable history.
+    /// Limit the opening window without dropping the cached prompt of its latest reply.
     @discardableResult mutating func limitToLatest(_ count: Int) -> Bool {
         let count = max(1, min(count, maximumItems))
-        guard data.items.count > count else { return false }
-        data.items = Array(data.items.suffix(count))
+        let boundary = min(max(0, data.items.count - count), data.latestQueryIndex ?? data.items.count)
+        guard boundary > 0 else { return false }
+        data.items.removeFirst(boundary)
         data.hasOlderItems = true
         return true
     }

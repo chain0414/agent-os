@@ -28,6 +28,8 @@
 
 ### iOS
 
+- 打开会话时先显示已同步的正文，并自动补齐被分页切开的最近提问；翻页失败时可在历史顶部看到原因并重试。（[#13](https://github.com/chain0414/agent-os/pull/13)）
+
 - 较早消息的加载提示始终位于历史顶部，首屏预览与接管按钮不再挡住正在阅读的消息。（[#11](https://github.com/chain0414/agent-os/pull/11)）
 - 上翻长会话时保留已排版的回复，减少翻页后的卡顿和跳动。（[#11](https://github.com/chain0414/agent-os/pull/11)）
 - 单条子 Agent 工具调用及附有通知的工具条目默认折叠，相关通知仍直接可见。（[#11](https://github.com/chain0414/agent-os/pull/11)）
