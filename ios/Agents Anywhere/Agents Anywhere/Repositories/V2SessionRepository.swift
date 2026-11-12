@@ -256,6 +256,7 @@ final class V2SessionRepository {
             var items: [V2TimelineItem] = []
             let deadline = ContinuousClock.now.advanced(by: .seconds(8))
             var last: V2SessionTimelinePage?
+            var queryBoundary: Int?
             for _ in 0..<(goal == .singlePage ? 1 : 4) {
                 let remaining = ContinuousClock.now.duration(to: deadline)
                 guard remaining > .zero else { throw URLError(.timedOut) }
@@ -266,15 +267,20 @@ final class V2SessionRepository {
                       !page.items.isEmpty || !page.hasMore else { throw HTTPError.invalidResponse }
                 last = page
                 items.append(contentsOf: page.items)
+                if goal == .openingTurn, let reply = data.latestReply,
+                   let query = page.items.last(where: reply.isPrecededByQuery) {
+                    queryBoundary = query.orderSeq
+                    break
+                }
                 guard page.hasMore, let next = page.items.map(\.orderSeq).min() else { break }
                 if goal == .readablePage && page.items.contains(where: \.hasOpeningMessage) { break }
-                if goal == .openingTurn, let reply = data.latestReply,
-                   page.items.contains(where: reply.isPrecededByQuery) { break }
                 cursor = next
             }
             guard let last else { throw HTTPError.invalidResponse }
+            let fetchedCount = items.count
+            if let queryBoundary { items.removeAll { $0.orderSeq < queryBoundary } }
             entry.projection?.applyHistory(.init(sessionId: sessionId, items: items, nextSeq: last.nextSeq,
-                hasMore: last.hasMore, serverTime: last.serverTime))
+                hasMore: last.hasMore || items.count < fetchedCount, serverTime: last.serverTime))
             emit(entry)
             return entry.projection!.data
         }

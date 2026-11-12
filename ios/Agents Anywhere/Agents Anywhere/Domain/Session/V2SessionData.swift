@@ -33,12 +33,12 @@ nonisolated struct V2SessionData: Hashable {
     var liveStateIsFresh = false
     var lastExtensionEvent: V2SessionEvent?
 
-    var latestReply: V2TimelineItem? {
+    @MainActor var latestReply: V2TimelineItem? {
         guard let item = items.last(where: \.hasOpeningMessage), item.role == .assistant else { return nil }
         return item
     }
 
-    var latestQueryIndex: Int? {
+    @MainActor var latestQueryIndex: Int? {
         guard let reply = latestReply else { return nil }
         return items.lastIndex { reply.isPrecededByQuery($0) }
     }
@@ -64,7 +64,7 @@ nonisolated struct V2SessionData: Hashable {
 }
 
 extension V2TimelineItem {
-    nonisolated func isPrecededByQuery(_ query: V2TimelineItem) -> Bool {
+    @MainActor func isPrecededByQuery(_ query: V2TimelineItem) -> Bool {
         guard query.orderSeq < orderSeq, query.isVisibleInChat, query.startsVisibleTurn else { return false }
         if let turnId, let queryTurn = query.turnId { return queryTurn == turnId }
         return true

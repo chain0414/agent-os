@@ -438,6 +438,7 @@ import Testing
         #expect(http.count("/timeline") == 1)
         let paired = try await repo.loadOlder(sessionId: "session", goal: .openingTurn)
         #expect(paired.latestQueryIndex.map { paired.items[$0].orderSeq } == 101)
+        #expect(paired.items.first?.orderSeq == 101 && paired.hasOlderItems)
         #expect(http.count("/timeline") == 4)
         let reopened = try await repo.open(sessionId: "session")
         #expect(reopened.items.first?.orderSeq == 101 && reopened.latestReply?.orderSeq == 401)
