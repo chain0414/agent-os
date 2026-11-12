@@ -16,7 +16,7 @@
 
 ### Web 与 Desktop 界面
 
-- DevKit 托管的 Web 登录页和账户设置支持通过邮件链接重置或修改密码。
+- DevKit 托管的 Web 登录页和账户设置支持通过邮件链接重置或修改密码。（[#12](https://github.com/chain0414/agent-os/pull/12)）
 
 - 邮箱登录会在输入含 `@` 的地址并离开输入框后，以淡色边框提示格式问题，密码框的位置保持稳定。（[#10](https://github.com/chain0414/agent-os/pull/10)）
 
