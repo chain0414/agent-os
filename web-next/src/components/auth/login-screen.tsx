@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Globe, User, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldGroup, FieldLabel as Label } from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel as Label } from "@/components/ui/field"
 import { isValidEmail } from "@/features/auth/account-profile"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupButton } from "@/components/ui/input-group"
 import { AuthShell } from "./auth-shell"
@@ -16,11 +16,14 @@ export function LoginScreen() {
   const t = useTranslations("auth")
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
+  const [emailBlurred, setEmailBlurred] = useState(false)
   const [password, setPassword] = useState("")
-  const emailInvalid = Boolean(email && !isValidEmail(email))
+  const emailValid = isValidEmail(email)
+  const emailInvalid = emailBlurred && email.includes("@") && !emailValid
+  const canSubmit = !loading && emailValid && Boolean(password)
 
   const submit = async (useDevKit = false) => {
-    if (loading || !isValidEmail(email) || !password) return
+    if (!canSubmit) return
     await login({ email, password }, useDevKit).catch(() => undefined)
   }
 
@@ -38,14 +41,16 @@ export function LoginScreen() {
 
       <form noValidate onSubmit={(event) => { event.preventDefault(); void submit() }}>
         <FieldGroup>
-          <Field data-invalid={emailInvalid}>
+          <Field>
             <Label htmlFor="login-email">{t("fields.email")}</Label>
-            <InputGroup className="h-11 rounded-lg">
+            <InputGroup className="h-11 rounded-lg has-[[data-slot][aria-invalid=true]]:border-destructive/50 has-[[data-slot][aria-invalid=true]]:ring-0">
               <InputGroupAddon><User className="size-4" /></InputGroupAddon>
               <InputGroupInput
                 id="login-email"
                 value={email}
                 onChange={(event) => setEmail(event.currentTarget.value)}
+                onFocus={() => setEmailBlurred(false)}
+                onBlur={() => setEmailBlurred(true)}
                 placeholder={t("login.userPlaceholder")}
                 type="email"
                 name="email"
@@ -56,10 +61,8 @@ export function LoginScreen() {
                 spellCheck={false}
                 className="code-mono"
                 aria-invalid={emailInvalid}
-                aria-describedby={emailInvalid ? "login-email-error" : undefined}
               />
             </InputGroup>
-            {emailInvalid ? <FieldError id="login-email-error">{t("login.invalidEmail")}</FieldError> : null}
           </Field>
 
           <Field>
@@ -87,7 +90,7 @@ export function LoginScreen() {
 
           <Button
             className="h-11 w-full font-medium"
-            disabled={loading || !isValidEmail(email) || !password}
+            disabled={!canSubmit}
             type="submit"
           >
             {loading ? t("login.signingIn") : t("login.submitWithEnter")}
@@ -98,7 +101,7 @@ export function LoginScreen() {
               type="button"
               variant="outline"
               className="h-11 w-full"
-              disabled={loading || !isValidEmail(email) || !password}
+              disabled={!canSubmit}
               onClick={() => void submit(true)}
             >
               {t("devkit.signIn")}
