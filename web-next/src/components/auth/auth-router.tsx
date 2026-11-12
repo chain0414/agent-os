@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense } from "react"
+import { lazy, Suspense } from "react"
 import { AuthProvider, useAuth } from "./auth-context"
 import { BootstrapScreen } from "./bootstrap-screen"
 import { LoginScreen } from "./login-screen"
@@ -10,11 +10,13 @@ import { OAuthNewUserScreen } from "./oauth-new-user-screen"
 import { OAuthLinkExistingScreen } from "./oauth-link-existing-screen"
 import { SignedOutScreen } from "./signed-out-screen"
 import { DesktopOAuthFlow, MobileOAuthFlow, PluginOAuthFlow } from "./mobile-oauth-page"
-import { PluginOnboardingPage } from "@/components/onboarding/plugin-onboarding-page"
-import { Demo } from "@/components/demo"
-import { FilePreviewPage } from "@/components/file-preview-page"
 import { LoadingState } from "@/components/loading-state"
-import { AnnouncementGate } from "@/components/announcements/announcement-gate"
+import { announcementPageEnabled } from "@/features/announcements/read-state"
+
+const Workspace = lazy(() => import("@/components/demo").then(({ Demo }) => ({ default: Demo })))
+const PluginOnboardingPage = lazy(() => import("@/components/onboarding/plugin-onboarding-page").then(({ PluginOnboardingPage }) => ({ default: PluginOnboardingPage })))
+const FilePreviewPage = lazy(() => import("@/components/file-preview-page").then(({ FilePreviewPage }) => ({ default: FilePreviewPage })))
+const AnnouncementGate = lazy(() => import("@/components/announcements/announcement-gate").then(({ AnnouncementGate }) => ({ default: AnnouncementGate })))
 
 function AuthRouterInner() {
   const { screen, loading, isAuthenticated, devkit } = useAuth()
@@ -25,10 +27,10 @@ function AuthRouterInner() {
     )
   }
   if (devkit?.managedOnly && ["bootstrap", "register", "forgot-password", "oauth-new-user", "oauth-link-existing"].includes(screen)) {
-    return isAuthenticated ? <Demo /> : <LoginScreen />
+    return isAuthenticated ? <Workspace /> : <LoginScreen />
   }
   if (screen === "bootstrap") return <BootstrapScreen />
-  if (screen === "app") return isAuthenticated ? <Demo /> : <LoginScreen />
+  if (screen === "app") return isAuthenticated ? <Workspace /> : <LoginScreen />
   if (screen === "signed-out") return <SignedOutScreen />
   if (screen === "register") return <RegisterScreen />
   if (screen === "forgot-password") return <ForgotPasswordScreen />
@@ -38,13 +40,7 @@ function AuthRouterInner() {
   if (screen === "desktop-oauth") return <DesktopOAuthFlow />
   if (screen === "plugin-oauth") return <PluginOAuthFlow />
   if (screen === "onboarding") return <PluginOnboardingPage />
-  if (screen === "preview") {
-    return (
-      <Suspense fallback={null}>
-        <FilePreviewPage />
-      </Suspense>
-    )
-  }
+  if (screen === "preview") return <FilePreviewPage />
   return <LoginScreen />
 }
 
@@ -58,5 +54,14 @@ export function AuthRouter() {
 
 function AuthRouterContent() {
   const { screen, loading } = useAuth()
-  return <><AuthRouterInner /><AnnouncementGate page={loading ? null : screen} /></>
+  return (
+    <>
+      <Suspense fallback={<LoadingState className="min-h-screen bg-background" />}>
+        <AuthRouterInner />
+      </Suspense>
+      {!loading && announcementPageEnabled(screen) ? (
+        <Suspense fallback={null}><AnnouncementGate page={screen} /></Suspense>
+      ) : null}
+    </>
+  )
 }
