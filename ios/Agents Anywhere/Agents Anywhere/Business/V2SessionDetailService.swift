@@ -69,14 +69,13 @@ struct V2SessionDetailService {
     func loadOlderItems(
         sessionId: V2SessionID,
         beforeOrderSeq: Int,
-        limit: Int = 100
+        limit: Int = 100,
+        timeout: Duration? = nil
     ) async throws -> V2SessionTimelinePage {
         try validatePageSize(limit)
-        return try await sessionAPI.timelineHistory(
-            sessionId: sessionId,
-            beforeOrderSeq: beforeOrderSeq,
-            limit: limit
-        )
+        return try await withOpeningDeadline(timeout: timeout) {
+            try await self.sessionAPI.timelineHistory(sessionId: sessionId, beforeOrderSeq: beforeOrderSeq, limit: limit)
+        }
     }
 
     func latestItems(sessionId: V2SessionID, limit: Int = 100) async throws -> V2SessionTimelinePage {

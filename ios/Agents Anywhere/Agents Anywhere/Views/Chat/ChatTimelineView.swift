@@ -21,6 +21,8 @@ struct ChatTimelineView: View {
     @State private var olderPull = TimelineHistoryPull(edge: .older)
     @State private var olderPromptVisible = false
     @State private var olderLoadRequest: Int?
+    @State private var olderLoadGoal = V2OlderHistoryGoal.readablePage
+    @State private var attemptedOpeningTurn = false
     @State private var latestPromptVisible = false
     @State private var latestLoadRequest: LatestLoadRequest?
     @State private var nativePhase = TimelineScrollState.Phase.idle
@@ -64,7 +66,7 @@ struct ChatTimelineView: View {
                     latestPullReady: latestPull.isReady, isLoadingLatest: latestLoadRequest != nil,
                     olderPullReady: olderPull.isReady, isLoadingOlder: olderLoadRequest != nil,
                     keepsOlderPrompt: hasRequestedOlder, historyAnchor: historyPosition?.origin,
-                    onLoadOlder: loadOlder, onLoadLatest: { loadLatest() },
+                    onLoadOlder: { loadOlder() }, onLoadLatest: { loadLatest() },
                     onHistoryLayout: historyDidLayOut,
                     onPromptVisibility: { latestPromptVisible = $0 },
                     onOlderPromptVisibility: { olderPromptVisible = $0 },
@@ -270,6 +272,14 @@ struct ChatTimelineView: View {
                 scrolling.settleUserScroll()
             }
             .task(id: olderLoadRequest) { await fetchOlderPage() }
+            .task(id: model.isOpeningReady && !model.session.hasNewerItems) {
+                guard model.isOpeningReady, anchoredAtTail, !attemptedOpeningTurn,
+                      let data = model.repository.cached(sessionId: model.session.id),
+                      data.hasOlderItems, !data.hasNewerItems, data.latestReply != nil,
+                      data.latestQueryIndex == nil, model.session.network.availability != .offline else { return }
+                attemptedOpeningTurn = true
+                loadOlder(automatically: true)
+            }
             .task(id: HistorySettlement(id: historyPosition?.id, ready: historyPosition?.isReadyToFinish == true,
                 offset: historyPosition?.restoredOffset)) {
                 guard let request = historyPosition?.id, historyPosition?.isReadyToFinish == true else { return }
@@ -324,7 +334,7 @@ struct ChatTimelineView: View {
     }
     private func fetchOlderPage() async {
         guard let request = olderLoadRequest else { return }
-        await model.session.loadOlder()
+        await model.session.loadOlder(goal: olderLoadGoal)
         guard !Task.isCancelled, historyPosition?.id == request else { return }
         guard model.session.isValid else {
             historyPosition = nil
@@ -340,12 +350,14 @@ struct ChatTimelineView: View {
         historyPosition?.cancelRestoration()
     }
 
-    private func loadOlder() {
+    private func loadOlder(automatically: Bool = false) {
         guard model.session.isValid, model.session.hasOlderItems,
               !model.session.isLoadingHistory, olderLoadRequest == nil, latestLoadRequest == nil else { return }
         olderPull.cancel(); latestPull.cancel()
-        scrolling.browseHistory()
-        position.isPositionedByUser = true
+        if !automatically {
+            scrolling.browseHistory()
+            position.isPositionedByUser = true
+        }
         let interactionTargets = Set(model.session.notices.notices.filter { $0.isVisible && $0.notice.type == "notification" }.compactMap(\.timelineTargetID))
         let groups = model.timelineGroups(interactionTargets: interactionTargets)
         let layout = model.timeline.rows.first.flatMap { first in
@@ -355,6 +367,9 @@ struct ChatTimelineView: View {
         historyPosition = TimelineHistoryPosition(id: scrolling.navigationGeneration, layout: layout,
             offsetY: viewport.offsetY, topInset: viewport.topInset)
         hasRequestedOlder = true
+        let data = model.repository.cached(sessionId: model.session.id)
+        let missingQuery = data?.hasNewerItems == false && data?.latestReply != nil && data?.latestQueryIndex == nil
+        olderLoadGoal = automatically || missingQuery ? .openingTurn : .readablePage
         olderLoadRequest = scrolling.navigationGeneration
     }
     private func captureReadingPosition(_ value: TimelineViewport) {
@@ -579,7 +594,17 @@ private struct ChatTimelineContent: View, Equatable {
                 .accessibilityIdentifier("chat.history.loadingOlder")
             } else if model.session.hasOlderItems {
                 Button(action: onLoadOlder) {
-                    Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
+                    Group {
+                        if let feedback = model.session.olderHistoryFeedback, !olderPullReady {
+                            VStack(spacing: 3) {
+                                Text(feedback.title).foregroundStyle(.secondary)
+                                Text(feedback == .recordsOnly ? String(localized: "加载较早的消息") : String(localized: "重试"))
+                            }
+                            .multilineTextAlignment(.center)
+                        } else {
+                            Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
+                        }
+                    }
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                 }

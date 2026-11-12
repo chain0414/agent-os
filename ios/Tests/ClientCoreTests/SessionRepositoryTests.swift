@@ -411,6 +411,58 @@ import Testing
         #expect(http.calls.last?.query.contains { $0.name == "beforeOrderSeq" && $0.value == "201" } == true)
     }
 
+    @Test func openingTurnFillsFourPagesAndKeepsTheCachedQueryWhenReopened() async throws {
+        let http = TestHTTPTransport()
+        http.respond = { call in
+            guard call.path.hasSuffix("/timeline") else { return try http.defaultResponse(call) }
+            let before = call.query.first { $0.name == "beforeOrderSeq" }?.value.flatMap(Int.init)
+            let start = before.map { max(1, $0 - 100) } ?? 378
+            let orders = start..<(before ?? 402)
+            let items = try orders.map { order in
+                var row = try itemObject(id: "item-\(order)", order: order)
+                if order == 101 {
+                    row["role"] = "user"
+                } else if order != 401 {
+                    row["type"] = "tool"
+                }
+                row.removeValue(forKey: "turnId")
+                return row
+            }
+            return try JSONSerialization.data(withJSONObject: ["sessionId": "session", "items": items,
+                "nextSeq": 1000, "hasMore": start > 1])
+        }
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let first = try await repo.open(sessionId: "session")
+        #expect(first.latestReply?.orderSeq == 401 && first.latestQueryIndex == nil)
+        #expect(http.count("/timeline") == 1)
+        let paired = try await repo.loadOlder(sessionId: "session", goal: .openingTurn)
+        #expect(paired.latestQueryIndex.map { paired.items[$0].orderSeq } == 101)
+        #expect(http.count("/timeline") == 4)
+        let reopened = try await repo.open(sessionId: "session")
+        #expect(reopened.items.first?.orderSeq == 101 && reopened.latestReply?.orderSeq == 401)
+        #expect(http.count("/timeline") == 4)
+    }
+
+    @Test func invalidHistoryPageLeavesTheCurrentReplyAndReportsFailureAtThePager() async throws {
+        let http = TestHTTPTransport()
+        http.respond = { call in
+            guard call.path.hasSuffix("/timeline") else { return try http.defaultResponse(call) }
+            var page = try fixtureObject("timeline")
+            page["hasMore"] = true
+            if call.query.contains(where: { $0.name == "beforeOrderSeq" }) { page["items"] = [] }
+            return try JSONSerialization.data(withJSONObject: page)
+        }
+        let repo = repository(transport: http)
+        defer { repo.reset() }
+        let model = repo.session(id: "session")
+        _ = try await repo.open(sessionId: "session")
+        await model.loadOlder()
+        #expect(model.olderHistoryFeedback == .failed)
+        #expect(model.failure == nil && model.hasOlderItems && !model.isLoadingHistory)
+        #expect(model.timeline.contains { $0.value.hasOpeningMessage })
+    }
+
     @Test func cachedModelLookupDoesNotSubscribeItsCallerToHistoricalRows() async throws {
         let http = TestHTTPTransport(), realtime = TestRealtimeAPI()
         let repo = repository(transport: http, realtime: realtime)
