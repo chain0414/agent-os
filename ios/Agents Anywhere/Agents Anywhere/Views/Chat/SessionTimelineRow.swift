@@ -9,13 +9,15 @@ struct SessionTimelineRow: View, Equatable {
     let disclosures: TimelineDisclosureState
     let onFile: (String) -> Void
     var omitsAssistantText = false
+    var usesPreparedMarkdown = false
+    @State private var markdownIsVisible = false
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     /// Observation still re-evaluates this row when its own model changes; the
     /// comparison only stops sibling invalidations from reaching every row.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row === rhs.row && lhs.chat === rhs.chat && lhs.cwd == rhs.cwd && lhs.disclosures === rhs.disclosures
-            && lhs.omitsAssistantText == rhs.omitsAssistantText
+            && lhs.omitsAssistantText == rhs.omitsAssistantText && lhs.usesPreparedMarkdown == rhs.usesPreparedMarkdown
     }
 
     var body: some View {
@@ -63,11 +65,29 @@ struct SessionTimelineRow: View, Equatable {
     }
 
     private var markdown: some View {
-        ChatMarkdownView(text: row.text, isStreaming: row.isRevealing, resolvesFileReferences: true)
+        Group {
+            if usesPreparedMarkdown {
+                let livePreparation = row.value.isStreamingText ? ChatMarkdownView.Preparation(row) : nil
+                ChatMarkdownBlocks(blocks: row.markdown.blocks, isStreaming: row.isRevealing,
+                    revealDeadlines: row.markdown.deadlines)
+                    .task(id: livePreparation) {
+                        if let livePreparation { await ChatMarkdownView.prepare(livePreparation) }
+                    }
+            } else {
+                ChatMarkdownView(text: row.text, isStreaming: row.isRevealing, resolvesFileReferences: true)
+            }
+        }
             .environment(\.chatLayoutTraceOwner, row.id)
             .id(row.layoutGeneration)
-            .frame(minHeight: row.value.isStreamingText ? lineHeight : nil, alignment: .topLeading)
-            .onScrollVisibilityChange(threshold: 0.02, openingBodyVisibilityChanged)
+            .frame(minHeight: row.value.isStreamingText || (usesPreparedMarkdown && row.markdown.blocks.isEmpty && !row.text.isEmpty)
+                ? lineHeight : nil, alignment: .topLeading)
+            .onScrollVisibilityChange(threshold: 0.02) { visible in
+                markdownIsVisible = visible
+                if !usesPreparedMarkdown || !row.markdown.blocks.isEmpty { openingBodyVisibilityChanged(visible) }
+            }
+            .onChange(of: row.markdown.blocks.isEmpty) { _, empty in
+                if usesPreparedMarkdown && !empty && markdownIsVisible { openingBodyVisibilityChanged(true) }
+            }
     }
 }
 

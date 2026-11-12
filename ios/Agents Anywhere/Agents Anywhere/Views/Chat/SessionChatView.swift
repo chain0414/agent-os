@@ -72,10 +72,6 @@ struct SessionChatView: View, Equatable {
                     ChatTimelineView(model: model,
                         onAttachment: openAttachment, onFile: openFile)
                         .safeAreaInset(edge: .top, spacing: 0) {
-                            if let preview = model.retainedOpeningPreview, let text = preview.text {
-                                ScrollView { openingPreviewText(preview, text: text).padding(16) }
-                                    .frame(maxHeight: 150)
-                            }
                             if model.openingError != nil && model.needsReadableHistory {
                                 openingFeedback.padding(8)
                             }
@@ -98,6 +94,9 @@ struct SessionChatView: View, Equatable {
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
+                        if requiresTakeover && session.metadata?.connectorStatus != .offline {
+                            takeoverPill
+                        }
                         SessionInteractionDock(chat: model,
                             onShowAll: { expandedNoticeID = $0; sheet = .notices })
                             .traceChatLayout("interaction-dock")
@@ -124,9 +123,6 @@ struct SessionChatView: View, Equatable {
                     VStack(alignment: .leading, spacing: 4) {
                         // Metadata can arrive after history. Transient controls
                         // float below the header instead of resizing its inset.
-                        if requiresTakeover {
-                            takeoverPill.frame(maxWidth: .infinity, alignment: .center)
-                        }
                         ChatErrorToasts(store: toasts, isRetrying: session.isLoading, onRetry: { _ in await session.refresh() })
                         if let success = model.commandSuccess {
                             CommandSuccessToast(feedback: success) { model.commandSuccess = nil }

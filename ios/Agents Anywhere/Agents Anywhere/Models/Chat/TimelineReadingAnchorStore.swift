@@ -32,7 +32,7 @@ import Foundation
         followsBottom = following
         if following { anchor = nil; return }
         guard top.isFinite else { return }
-        let candidates = measurements.filter { _, value in
+        let candidates = measurements.lazy.filter { _, value in
             abs(value.width - width) < 1 && value.y <= top && value.y + value.height > top
         }
         // Prefer the paragraph containing the top edge to a whole long reply.

@@ -5,6 +5,27 @@ import Testing
 @testable import ClientCore
 
 @Suite @MainActor struct SessionRepositoryTests {
+    @Test(arguments: [
+        HTTPError.server(statusCode: 409, message: "connector disconnected"),
+        HTTPError.server(statusCode: 409, message: "Device is offline", detail: .object(["code": .string("connector_offline")]))
+    ])
+    func connectorDisconnectDuringLiveRefreshKeepsHistoryWithoutAnActionError(_ error: HTTPError) async throws {
+        let http = TestHTTPTransport(), realtime = TestRealtimeAPI()
+        let repo = repository(transport: http, realtime: realtime)
+        defer { repo.reset() }
+        http.respond = { call in
+            if call.path.hasSuffix("/runtime/capabilities") { throw error }
+            return try http.defaultResponse(call)
+        }
+        let model = repo.session(id: "session")
+        let observation = Task { await model.connect() }
+        defer { observation.cancel() }
+        try await eventually { model.connection == .connected && http.count("/runtime/capabilities") > 0 }
+        #expect(model.timeline.contains { $0.value.hasOpeningMessage })
+        #expect(!model.runtime.isFresh)
+        #expect(model.failure == nil)
+    }
+
     @Test func openingPreviewIsReadableWhileHistoryIsPending() async throws {
         let http = TestHTTPTransport(), history = TestGate()
         let repo = repository(transport: http)

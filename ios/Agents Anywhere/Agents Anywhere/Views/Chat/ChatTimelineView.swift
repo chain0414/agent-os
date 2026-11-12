@@ -269,13 +269,7 @@ struct ChatTimelineView: View {
                 guard !Task.isCancelled else { return }
                 scrolling.settleUserScroll()
             }
-            .task(id: olderLoadRequest) {
-                guard let request = olderLoadRequest else { return }
-                await model.session.loadOlder()
-                guard !Task.isCancelled, historyPosition?.id == request else { return }
-                if !model.session.isValid { historyPosition = nil; olderLoadRequest = nil; return }
-                historyPosition?.receivedPage(firstRowID: model.session.timeline.first { $0.value.isVisibleInChat }?.id)
-            }
+            .task(id: olderLoadRequest) { await fetchOlderPage() }
             .task(id: HistorySettlement(id: historyPosition?.id, ready: historyPosition?.isReadyToFinish == true,
                 offset: historyPosition?.restoredOffset)) {
                 guard let request = historyPosition?.id, historyPosition?.isReadyToFinish == true else { return }
@@ -328,6 +322,24 @@ struct ChatTimelineView: View {
             keyboardIsVisible = false
         }
     }
+    private func fetchOlderPage() async {
+        guard let request = olderLoadRequest else { return }
+        await model.session.loadOlder()
+        guard !Task.isCancelled, historyPosition?.id == request else { return }
+        guard model.session.isValid else {
+            historyPosition = nil
+            olderLoadRequest = nil
+            return
+        }
+        historyPosition?.receivedPage(firstRowID: model.session.timeline.first { $0.value.isVisibleInChat }?.id)
+        // The retained anchor may be outside the lazy stack's rendered range
+        // after a prepend. Allow the next page even without a geometry callback.
+        guard historyPosition?.isReadyToFinish == false else { return }
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        guard historyPosition?.id == request, historyPosition?.isReadyToFinish == false else { return }
+        historyPosition?.cancelRestoration()
+    }
+
     private func loadOlder() {
         guard model.session.isValid, model.session.hasOlderItems,
               !model.session.isLoadingHistory, olderLoadRequest == nil, latestLoadRequest == nil else { return }
@@ -476,11 +488,13 @@ private struct ChatTimelineContent: View, Equatable {
         // Prefer a message whose start cannot move into a prefixed tool group.
         // For an all-tools page, retain the existing group's trailing edge.
         let entries = TimelineRenderEntry.build(groups: groups)
-        let preparations = groups.compactMap { group -> ChatMarkdownView.Preparation? in
-            guard group.kind == .single, group.rows.count == 1,
-                  let row = group.rows.first, row.usesBlockTimeline else { return nil }
-            return ChatMarkdownView.Preparation(row)
+        let replies = groups.compactMap { group -> ChatTimelineRowModel? in
+            guard group.kind == .single, let row = group.rows.first, row.structure.isAssistantMessage else { return nil }
+            return row
         }
+        let historyPreparations = replies.filter { !$0.structure.isStreamingText }.map(ChatMarkdownView.Preparation.init)
+        let liveBlockPreparations = replies.filter { $0.structure.isStreamingText && $0.usesBlockTimeline }
+            .map(ChatMarkdownView.Preparation.init)
         let anchorEntry = readingEntry(in: entries)
         let anchorEdge: TimelineHistoryLayout.Edge = historyAnchor?.edge
             ?? (anchorEntry?.group.rows.first?.structure.groupKind == .single ? .top : .bottom)
@@ -514,20 +528,31 @@ private struct ChatTimelineContent: View, Equatable {
                     .padding(.bottom, 20)
             }
             if model.session.hasNewerItems { newerPrompt }
+            if let preview = model.retainedOpeningPreview, let text = preview.text {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "最近消息预览")).font(.footnote).foregroundStyle(.secondary)
+                    Text(verbatim: preview.truncated ? text + "…" : text)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 20)
+                .accessibilityIdentifier("chat.opening.preview")
+            }
             timelineTail
         }
-        .task(id: preparations) {
-            // Prefer the latest reply and bound parser work even in a history
-            // window containing many long messages.
-            for preparation in preparations.reversed() {
-                guard !Task.isCancelled else { return }
-                await ChatMarkdownView.prepare(preparation)
-            }
-        }
+        .task(id: historyPreparations) { await prepareReplies(historyPreparations) }
+        .task(id: liveBlockPreparations) { await prepareReplies(liveBlockPreparations) }
         .scrollTargetLayout()
         .modifier(ChatPageContentColumn(horizontalInset: nil))
         .coordinateSpace(name: "chat.timeline.content")
         .traceChatLayout("timeline-content", state: "groups=\(groups.count), footers=\(actions.count), running=\(model.isRunning)")
+    }
+
+    private func prepareReplies(_ preparations: [ChatMarkdownView.Preparation]) async {
+        for preparation in preparations.reversed() {
+            guard !Task.isCancelled else { return }
+            await ChatMarkdownView.prepare(preparation)
+        }
     }
 
     private func readingEntry(in entries: [TimelineRenderEntry]) -> TimelineRenderEntry? {
@@ -545,17 +570,21 @@ private struct ChatTimelineContent: View, Equatable {
 
     private var olderPrompt: some View {
         Group {
-            if isLoadingOlder {
+            if isLoadingOlder && model.session.isLoadingHistory {
                 HStack(spacing: 8) {
                     ProgressView().progressViewStyle(.circular).controlSize(.small)
                     Text(String(localized: "正在加载较早的消息…"))
-                }.accessibilityElement(children: .combine)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("chat.history.loadingOlder")
             } else if model.session.hasOlderItems {
                 Button(action: onLoadOlder) {
                     Text(olderPullReady ? String(localized: "松开加载较早的消息") : String(localized: "加载较早的消息"))
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
-                }.disabled(model.session.isLoadingHistory || isLoadingLatest)
+                }
+                .accessibilityIdentifier("chat.history.older")
+                .disabled(model.session.isLoadingHistory || isLoadingLatest || isLoadingOlder)
             } else {
                 // Retain the prompt's footprint on the final page; removing
                 // it after restoring would move the reader by another row.

@@ -144,9 +144,13 @@ import Testing
         #expect(one[0].id == two[0].id && one[0].kind == .tools && two[0].kind == .tools)
         #expect(two[0].title == "已完成")
         let protected = TimelineGrouping.groups([first, second], interactionTargets: ["a"])
-        #expect(protected.map(\.kind) == [.single, .tools])
+        #expect(protected.map(\.kind) == [.tools, .tools])
+        #expect(protected.map(\.id) == ["a", "b"])
         let children = try ["x", "y"].map { ChatTimelineRowModel(try item(id: $0, content: ["kind": "agent_call", "parentItemId": "parent"])) }
         #expect(TimelineGrouping.groups(children, interactionTargets: [])[0].kind == .agents("parent"))
+        let isolatedChild = TimelineGrouping.groups([children[0]], interactionTargets: [])[0]
+        #expect(isolatedChild.kind == .agents("parent"))
+        #expect(!TimelineDisclosureState().isExpanded("group:x"))
     }
 
     @Test func fileReferencesRouteDevicePathsWithoutOpeningLocalFilesOrWebLinks() throws {

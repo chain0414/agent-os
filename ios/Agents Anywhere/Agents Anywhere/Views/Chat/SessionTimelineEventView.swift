@@ -21,6 +21,11 @@ struct SessionTimelineGroupView: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             content
                 .traceChatLayout("group-content:\(group.id)")
+            if group.kind != .single {
+                ForEach(inlineNotices) { notice in
+                    SessionInteractionCard(item: notice, chat: chat)
+                }
+            }
             if let turnAction {
                 SessionTurnReviewFooter(action: turnAction, root: chat.session.metadata?.cwd,
                     hasOlderItems: chat.session.hasOlderItems, onFile: onFile)
@@ -48,10 +53,13 @@ struct SessionTimelineGroupView: View, Equatable {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(group.rows) { row in
                 SessionTimelineRow(row: row, chat: chat, onAttachment: onAttachment, cwd: chat.session.metadata?.cwd,
-                    disclosures: chat.disclosures, onFile: onFile, omitsAssistantText: omitsAssistantText)
+                    disclosures: chat.disclosures, onFile: onFile, omitsAssistantText: omitsAssistantText,
+                    usesPreparedMarkdown: group.kind == .single && row.structure.isAssistantMessage)
                     .equatable()
-                ForEach(inlineNotices.filter { $0.timelineTargetID == row.id }) { notice in
-                    SessionInteractionCard(item: notice, chat: chat)
+                if group.kind == .single {
+                    ForEach(inlineNotices) { notice in
+                        SessionInteractionCard(item: notice, chat: chat)
+                    }
                 }
             }
         }

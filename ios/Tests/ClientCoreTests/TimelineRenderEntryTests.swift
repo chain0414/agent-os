@@ -14,6 +14,25 @@ import Synchronization
         row.flush(try decode(itemObject(id: "short", text: "Hello world")), animate: false, now: 1)
         #expect(!changed.withLock { $0 })
     }
+    @Test func preparedShortReplySurvivesHistoryPrependWithoutInvalidatingEntryProjection() throws {
+        let reply: V2TimelineItem = try decode(itemObject(id: "reply", order: 2, text: "Reply"))
+        let earlier: V2TimelineItem = try decode(itemObject(id: "earlier", order: 1, text: "Earlier reply"))
+        let presentation = SessionTimelinePresentation()
+        presentation.presentOpening([reply], pendingMessages: [])
+        let row = try #require(presentation.rows.first)
+        let changed = Mutex(false)
+        withObservationTracking {
+            _ = TimelineRenderEntry.build(groups: TimelineGrouping.groups([row], interactionTargets: []))
+        } onChange: { changed.withLock { $0 = true } }
+        row.markdown.publish(blocks: [MarkdownBlockSnapshot(id: 0, content: AttributedString("Reply"))],
+                             state: MarkdownParseState(), deadlines: [:], text: row.text)
+        #expect(!changed.withLock { $0 })
+        presentation.stage([earlier, reply], animate: false)
+        presentation.flush()
+        #expect(presentation.rows.last === row)
+        #expect(presentation.rows.last?.markdown.parsedText == "Reply")
+    }
+
     @Test func longReplyExposesUniqueParagraphTargetsAndOneMessageTail() throws {
         let row = ChatTimelineRowModel(try decode(itemObject(id: "long", text: String(repeating: "a", count: 20_000))))
         row.markdown.publish(blocks: [MarkdownBlockSnapshot(id: 0, content: AttributedString("first")),
