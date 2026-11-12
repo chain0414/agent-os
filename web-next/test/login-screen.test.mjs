@@ -38,7 +38,7 @@ async function type(input, value) {
   })
 }
 
-test('login asks for an email and blocks submission until the address is valid', async (t) => {
+test('login only marks incomplete email addresses after blur and blocks invalid submission', async (t) => {
   t.mock.method(authApi, 'config', async () => ({ needsBootstrap: false, registrationOpen: true }))
   t.mock.method(authApi, 'me', async () => null)
   const container = document.createElement('div')
@@ -54,14 +54,25 @@ test('login asks for an email and blocks submission until the address is valid',
   await type(container.querySelector('#login-password'), 'secret')
   assert.ok(!container.textContent.includes(hint), 'an empty field shows no error')
 
-  await type(email, 'not-an-email')
-  assert.ok(container.textContent.includes(hint))
-  assert.equal(email.getAttribute('aria-invalid'), 'true')
-  assert.equal(email.getAttribute('aria-describedby'), 'login-email-error')
+  await act(async () => email.focus())
+  await type(email, 'c')
+  assert.equal(email.getAttribute('aria-invalid'), 'false')
+  await act(async () => email.blur())
+  assert.equal(email.getAttribute('aria-invalid'), 'false')
   assert.equal(submit.disabled, true)
 
-  await type(email, 'user@example.com')
+  await act(async () => email.focus())
+  await type(email, 'c@')
+  assert.equal(email.getAttribute('aria-invalid'), 'false')
+  await act(async () => email.blur())
+  assert.equal(email.getAttribute('aria-invalid'), 'true')
   assert.ok(!container.textContent.includes(hint))
+  assert.equal(submit.disabled, true)
+
+  await act(async () => email.focus())
+  assert.equal(email.getAttribute('aria-invalid'), 'false')
+  await type(email, 'user@example.com')
+  await act(async () => email.blur())
   assert.equal(email.getAttribute('aria-invalid'), 'false')
   assert.equal(submit.disabled, false)
 })
