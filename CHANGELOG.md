@@ -16,7 +16,7 @@
 
 ### Web 与 Desktop 界面
 
-- Web 登录页更快显示表单，会话工作台和文件预览在打开时加载。
+- Web 登录页更快显示表单，会话工作台和文件预览在打开时加载。（[#14](https://github.com/chain0414/agent-os/pull/14)）
 
 - DevKit 托管的 Web 登录页和账户设置支持通过邮件链接重置或修改密码。（[#12](https://github.com/chain0414/agent-os/pull/12)）
 
