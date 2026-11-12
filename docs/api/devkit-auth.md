@@ -14,6 +14,18 @@ Agent OS 向 DevKit 的 `/api/runtime/v1/auth/session-metadata` 验证项目、�
 
 在 `AGENT_SERVER_DEVKIT_AUTH` 中设置 `"managedOnly": true`，由 DevKit 提供邮箱和飞书登录及用户管理。`GET /api/v2/auth/config` 在 `devkit.managedOnly` 返回该标志。启用前由运营方导入现有用户身份，并将 DevKit 主体对应到原业务用户 ID。启用后应用登录页使用 DevKit，停用 Agent OS 的本地登录、注册、密码恢复、身份绑定、用户管理和用户统计接口。应用继续按原业务用户 ID 授权已有设备和会话。原生应用的浏览器授权和扫码登录继续使用已有交换接口。配置无法解析时，登录配置与本地身份入口返回 503。移除配置变量可恢复独立运行模式。
 
+### 托管实例的密码恢复
+
+Web 登录页的「忘记密码」和账户设置的「修改密码」进入同一个邮箱确认流程。浏览器从 DevKit 的项目 Auth 接口申请重置链接，并将邮件链接中的一次性令牌和新密码直接交给 DevKit。Agent OS 不接收或保存新密码。本地认证的验证码和密码接口仍只用于非托管实例。
+
+发布前，将实际 Web 来源下的 `/auth/devkit/reset-password` 登记为该项目的精确回跳 URL，保留现有的邮箱验证回跳。例如，`agent-os` 的生产回跳是：
+
+```sh
+devkit identity redirect add https://os.begrow.ai/auth/devkit/reset-password --project agent-os --yes --json
+```
+
+验收使用带可收邮件地址的已绑定测试身份：分别从登录页和账户设置发起请求；确认收到邮件、链接能打开重置表单；确认旧密码失败、新密码可登录到同一 Agent OS 用户，原角色、设备和会话仍可访问。重置完成不提前结束已经签发的 Agent OS 会话。对不符合重置条件的邮箱，页面同样提示检查邮件，以免暴露账号是否存在。
+
 ## 自托管混合接入配置及验证
 
 通过 Server 环境变量 `AGENT_SERVER_DEVKIT_AUTH` 配置 JSON，字段为 `apiUrl`、`appOrigin`、`publishableKey`、`projectId`、`environmentId`、`realmId`、`issuer`、`audience`。使用 `devkit identity config --project agent-os --json` 核对身份范围。将实际网页来源加入同一 DevKit 项目的允许来源。若使用邮箱注册，将该来源下的 `/auth/devkit/verify` 加入 DevKit 邮箱验证回跳白名单并确认邮件送达。启用前应用数据库迁移。

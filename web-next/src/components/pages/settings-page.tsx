@@ -44,7 +44,7 @@ import { useAuth } from "@/components/auth/auth-context"
 import { LocaleSwitcher } from "@/components/locale-switcher"
 import { LoadingState } from "@/components/loading-state"
 import { useWorkspace } from "@/components/workspace-context"
-import { authApi } from "@/features/auth/api"
+import { authApi, DEVKIT_PASSWORD_RESET_PATH } from "@/features/auth/api"
 import type { AuthMe } from "@/features/auth/types"
 import { useMobileConnectionsSidebarVisibility } from "@/features/mobile-connections/sidebar-visibility"
 import { cn } from "@/lib/utils"
@@ -132,7 +132,16 @@ function AccountTab({
         </dl>
       </SettingsSection>
 
-      {!managedOnly ? (
+      {managedOnly ? (
+        <SettingsSection
+          title={t("password")}
+          action={
+            <Button asChild variant="outline" size="sm">
+              <a href={DEVKIT_PASSWORD_RESET_PATH}>{t("changeDevKitPassword")}</a>
+            </Button>
+          }
+        />
+      ) : (
         <>
           <SettingsSection
             title={t("password")}
@@ -157,7 +166,7 @@ function AccountTab({
             onOpenChange={setAvatarOpen}
           />
         </>
-      ) : null}
+      )}
     </div>
   )
 }

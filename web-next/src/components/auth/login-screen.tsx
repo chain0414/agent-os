@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Globe, User, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel as Label } from "@/components/ui/field"
+import { DEVKIT_PASSWORD_RESET_PATH } from "@/features/auth/api"
 import { isValidEmail } from "@/features/auth/account-profile"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupButton } from "@/components/ui/input-group"
 import { AuthShell } from "./auth-shell"
@@ -135,7 +136,11 @@ export function LoginScreen() {
             </Button>
           ) : null}
 
-          {registrationOpen || passwordResetEnabled ? (
+          {devkit?.managedOnly ? (
+            <a className="text-center text-sm font-medium underline-offset-4 hover:underline" href={DEVKIT_PASSWORD_RESET_PATH}>
+              {t("devkitPassword.forgot")}
+            </a>
+          ) : registrationOpen || passwordResetEnabled ? (
             <div className="flex flex-col items-center gap-1 text-sm text-muted-foreground">
               {registrationOpen ? (
                 <p>

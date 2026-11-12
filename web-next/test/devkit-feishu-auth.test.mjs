@@ -35,6 +35,7 @@ const injectedFactory = registerHooks({
   },
 })
 const { AuthProvider } = await import("../src/components/auth/auth-context.tsx")
+const { authApi } = await import("../src/features/auth/api.ts")
 const { LoginScreen } = await import("../src/components/auth/login-screen.tsx")
 const { DevKitAccountLink } = await import("../src/components/pages/devkit-account-link.tsx")
 injectedFactory.deregister()
@@ -199,6 +200,7 @@ test("managed login uses DevKit for the primary password action and shows one Fe
     client, managedOnly: true,
   })
   assert.ok(button(container, "使用飞书登录"))
+  assert.ok(container.querySelector('a[href="/auth/devkit/reset-password"]'))
   assert.equal(button(container, "使用 DevKit 飞书登录"), undefined)
   assert.equal(button(container, "使用 DevKit 登录"), undefined)
   await fill(container, "#login-email", credentials.email)
@@ -211,4 +213,22 @@ test("managed login uses DevKit for the primary password action and shows one Fe
   }])
   assert.deepEqual(exchanges, [{ operation: "login", token: null, body: { accessToken: devkitAccessToken } }])
   assert.deepEqual(JSON.parse(window.localStorage.getItem("aa.session.v1")), agentAccount)
+})
+
+test("DevKit recovery sends email and new password only to the project Auth API", async (t) => {
+  const calls = []
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    calls.push([url, init.credentials, JSON.parse(init.body)])
+    return Response.json(url.endsWith("request") ? { accepted: true } : { reset: true })
+  })
+  await authApi.requestDevKitPasswordReset(config, " EXAMPLE@EXAMPLE.TEST ")
+  await authApi.resetDevKitPassword(config, "synthetic-reset-token", "NewPassword99")
+  assert.deepEqual(calls, [
+    ["https://devkit.example.test/api/runtime/v1/auth/password/reset/request", "omit", {
+      email: "example@example.test", redirectTo: "https://app.example.test/auth/devkit/reset-password",
+    }],
+    ["https://devkit.example.test/api/runtime/v1/auth/password/reset/confirm", "omit", {
+      token: "synthetic-reset-token", password: "NewPassword99",
+    }],
+  ])
 })

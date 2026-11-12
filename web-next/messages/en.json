@@ -1447,6 +1447,19 @@
       "sent": "Code sent. Check your inbox.",
       "failed": "Failed to send verification code."
     },
+    "devkitPassword": {
+      "forgot": "Forgot password?",
+      "requirements": "Use 10–128 characters, including an uppercase letter, a lowercase letter, and a number.",
+      "send": "Send reset link",
+      "submitting": "Submitting…",
+      "requestFailed": "Could not request a reset. Try again later.",
+      "resetFailed": "Could not reset the password. The link may have expired. You can request a new one.",
+      "loading": "Loading…",
+      "sent": "If this email is eligible for a password reset, you’ll receive a link.",
+      "invalidLink": "This reset link is invalid. Request a new one.",
+      "unavailable": "Password reset is temporarily unavailable.",
+      "requestAgain": "Request a new reset link"
+    },
     "forgotPassword": {
       "title": "Reset password",
       "description": "Enter your account email. We'll send a verification code so you can set a new password.",
@@ -1461,6 +1474,7 @@
   },
   "pages": {
     "settings": {
+      "changeDevKitPassword": "Change password",
       "title": "Settings",
       "description": "Description",
       "account": "Account",

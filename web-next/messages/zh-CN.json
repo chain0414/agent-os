@@ -1447,6 +1447,19 @@
       "sent": "验证码已发送，请查看邮箱。",
       "failed": "验证码发送失败。"
     },
+    "devkitPassword": {
+      "forgot": "忘记密码？",
+      "requirements": "使用 10–128 个字符，包含大写字母、小写字母和数字。",
+      "send": "发送重置链接",
+      "submitting": "正在提交…",
+      "requestFailed": "暂时无法请求重置，请稍后重试。",
+      "resetFailed": "无法重置密码。链接可能已失效，可以重新发送。",
+      "loading": "正在加载…",
+      "sent": "如果该邮箱可以重置密码，你会收到一封邮件。",
+      "invalidLink": "重置链接无效，请重新发送。",
+      "unavailable": "暂时无法使用密码重置。",
+      "requestAgain": "重新发送重置链接"
+    },
     "forgotPassword": {
       "title": "重置密码",
       "description": "输入账号邮箱，我们会发送验证码，验证后即可设置新密码。",
@@ -1461,6 +1474,7 @@
   },
   "pages": {
     "settings": {
+      "changeDevKitPassword": "修改密码",
       "title": "设置",
       "description": "描述",
       "account": "账号",
