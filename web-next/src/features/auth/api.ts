@@ -28,6 +28,8 @@ import type {
   MobileLoginStatusResponse
 } from "@/features/auth/types";
 
+export const DEVKIT_PASSWORD_RESET_PATH = "/auth/devkit/reset-password";
+
 export class AuthApi {
   constructor(private readonly client: ApiClient = apiClient) {}
 
@@ -95,6 +97,17 @@ export class AuthApi {
     await this.devkitRequest(config, "/verify", { token });
   }
 
+  async requestDevKitPasswordReset(config: DevKitAuthConfig, email: string): Promise<void> {
+    await this.devkitRequest(config, "/password/reset/request", {
+      email: normalizeEmail(email),
+      redirectTo: new URL(DEVKIT_PASSWORD_RESET_PATH, window.location.origin).href,
+    });
+  }
+
+  async resetDevKitPassword(config: DevKitAuthConfig, token: string, password: string): Promise<void> {
+    await this.devkitRequest(config, "/password/reset/confirm", { token, password });
+  }
+
   private async devkitAccessToken(
     config: DevKitAuthConfig,
     credentials: { email: string; password: string },
@@ -111,7 +124,7 @@ export class AuthApi {
 
   private async devkitRequest(
     config: DevKitAuthConfig,
-    path: "/login" | "/signup" | "/verify",
+    path: "/login" | "/signup" | "/verify" | "/password/reset/request" | "/password/reset/confirm",
     body: Record<string, string>,
   ): Promise<Response> {
     const endpoint = new URL(config.apiUrl);
