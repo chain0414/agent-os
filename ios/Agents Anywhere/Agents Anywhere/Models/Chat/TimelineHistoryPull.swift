@@ -20,13 +20,18 @@ nonisolated struct TimelineHistoryPull: Equatable {
 
     mutating func update(_ viewport: TimelineViewport) {
         guard let origin else { return }
-        guard abs(viewport.contentHeight - origin.contentHeight) <= 2,
-              abs(viewport.visibleHeight - origin.visibleHeight) <= 2 else {
+        // Live rows can grow below the older edge without moving that edge.
+        guard abs(viewport.visibleHeight - origin.visibleHeight) <= 2,
+              abs(viewport.containerWidth - origin.containerWidth) <= 2,
+              abs(viewport.topInset - origin.topInset) <= 2,
+              edge == .older || abs(viewport.contentHeight - origin.contentHeight) <= 2 else {
             cancel()
             return
         }
-        let movement = viewport.visibleBottom - origin.visibleBottom
-        isReady = (edge == .latest ? movement : -movement) >= 24
+        let movement = edge == .older
+            ? origin.offsetY - viewport.offsetY
+            : viewport.visibleBottom - origin.visibleBottom
+        isReady = movement >= 24
     }
 
     mutating func end() -> Bool {

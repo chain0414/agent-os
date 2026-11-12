@@ -350,6 +350,16 @@ import Testing
         }
     }
 
+    @Test func olderHistoryPullSurvivesLiveContentGrowingBelowTheViewport() {
+        var pull = TimelineHistoryPull(edge: .older)
+        pull.begin(at: viewport(), promptVisible: true, canLoad: true)
+        pull.update(viewport(offset: -12, height: 2020))
+        #expect(!pull.isReady)
+        pull.update(viewport(offset: -38, height: 2060))
+        let loadsEarlier = pull.end()
+        #expect(loadsEarlier)
+    }
+
     @Test func historyPullCancelsOnResizingReversalOrExistingRequests() {
         for edge in [TimelineHistoryPull.Edge.older, .latest] {
             var pull = TimelineHistoryPull(edge: edge)
@@ -359,7 +369,7 @@ import Testing
             #expect(!pull.isReady)
             pull.begin(at: viewport(), promptVisible: true, canLoad: true)
             pull.update(viewport(offset: direction * 50, height: 2020))
-            #expect(!pull.isReady)
+            #expect(pull.isReady == (edge == .older))
             pull.begin(at: viewport(), promptVisible: true, canLoad: true)
             pull.update(viewport(offset: direction * 50, container: 500))
             #expect(!pull.isReady)

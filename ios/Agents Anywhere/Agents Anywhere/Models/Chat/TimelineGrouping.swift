@@ -55,10 +55,12 @@ enum TimelineGrouping {
         var pendingStartsTurn = false
         var nextStartsTurn = false
         var previousTurnID: String?
+        func foldsTool(_ row: ChatTimelineRowModel) -> Bool {
+            row.structure.type == .tool || row.structure.isFileChange
+        }
         func flush() {
             guard !pending.isEmpty else { return }
-            let foldsTool = pendingKind == .tools && pending[0].structure.type == .tool
-            groups.append(ChatTimelineGroup(kind: pending.count > 1 || foldsTool ? pendingKind : .single, rows: pending,
+            groups.append(ChatTimelineGroup(kind: pending.count > 1 || foldsTool(pending[0]) ? pendingKind : .single, rows: pending,
                 startsTurn: pendingStartsTurn))
             pending = []
             pendingStartsTurn = false
@@ -80,10 +82,10 @@ enum TimelineGrouping {
                 }
                 previousTurnID = turnID
             }
-            let kind: ChatTimelineGroup.Kind = interactionTargets.contains(row.id) ? .single : row.structure.groupKind
-            if kind == .single {
+            let kind = row.structure.groupKind
+            if kind == .single || protected {
                 flush()
-                groups.append(ChatTimelineGroup(kind: .single, rows: [row], startsTurn: nextStartsTurn))
+                groups.append(ChatTimelineGroup(kind: foldsTool(row) ? kind : .single, rows: [row], startsTurn: nextStartsTurn))
                 nextStartsTurn = false
                 continue
             }

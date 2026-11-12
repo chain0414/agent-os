@@ -648,6 +648,16 @@ final class V2SessionRepository {
                 } catch {
                     try requireCurrent(entry)
                     guard entry.connectionID == version else { throw CacheError.invalidated }
+                    if let http = error as? HTTPError,
+                       http.serverCode == "connector_offline" ||
+                        (http.statusCode == 409 && http.localizedDescription == "connector disconnected") {
+                        // The server subscription and stored history still work.
+                        entry.error = nil
+                        entry.needsMetadataRefresh = true
+                        refreshOpeningMetadata(entry)
+                        emit(entry, persist: false)
+                        return
+                    }
                     entry.error = V2ClientFailure(error)
                     throw error
                 }

@@ -19,14 +19,7 @@ struct ChatMarkdownView: View {
     @State private var parseState = MarkdownParseState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(blocks) { block in
-                MarkdownBlockView(block: block, isStreaming: isStreaming, isTail: block.id == blocks.last?.id,
-                                  revealDeadline: revealDeadlines[block.id] ?? .distantPast)
-                    .equatable()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        ChatMarkdownBlocks(blocks: blocks, isStreaming: isStreaming, revealDeadlines: revealDeadlines)
         .task(id: ParseRequest(text: text, resolvesFileReferences: resolvesFileReferences)) {
             let request = ParseRequest(text: text, resolvesFileReferences: resolvesFileReferences)
             // Parsing a long response must not block scroll and drawer gestures.
@@ -134,6 +127,23 @@ struct ChatMarkdownView: View {
         }
         try Task.checkCancellation()
         return MarkdownBlockSnapshot.split(document, startingAt: startID)
+    }
+}
+
+struct ChatMarkdownBlocks: View {
+    let blocks: [MarkdownBlockSnapshot]
+    let isStreaming: Bool
+    let revealDeadlines: [Int: Date]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(blocks) { block in
+                MarkdownBlockView(block: block, isStreaming: isStreaming, isTail: block.id == blocks.last?.id,
+                                  revealDeadline: revealDeadlines[block.id] ?? .distantPast)
+                    .equatable()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

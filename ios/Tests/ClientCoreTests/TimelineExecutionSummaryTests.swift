@@ -83,7 +83,7 @@ import Testing
         #expect(settled.map(\.id) == ["ask", "progress", "final"])
         #expect(settled[1].executionDuration == nil)
         let protected = TimelineGrouping.groups(rows, interactionTargets: ["command"], latestTurnIsComplete: true)
-        #expect(protected.first { $0.id == "command" }?.kind == .single)
+        #expect(protected.first { $0.id == "command" }?.kind == .tools)
         let withoutFinal = TimelineGrouping.groups(Array(rows.dropLast()), interactionTargets: [], latestTurnIsComplete: true)
         #expect(!withoutFinal.contains { $0.kind == .completedTurn })
     }
@@ -93,7 +93,7 @@ import Testing
                         tool("command", status: "running"), tool("approval")]
         let groups = TimelineGrouping.groups(rows, interactionTargets: ["approval"], latestTurnIsComplete: false)
         #expect(groups.map(\.id) == ["ask", "progress", "command", "approval"])
-        #expect(groups.map(\.kind) == [.single, .single, .tools, .single])
+        #expect(groups.map(\.kind) == [.single, .single, .tools, .tools])
         #expect(!TimelineDisclosureState().isExpanded("group:command"))
     }
 
@@ -109,7 +109,7 @@ import Testing
                         tool("after"), message("final")]
         let groups = TimelineGrouping.groups(rows, interactionTargets: ["approval"], latestTurnIsComplete: true)
         #expect(groups.map(\.id) == ["ask", "before", "approval", "after", "final"])
-        #expect(groups.map(\.kind) == [.single, .completedTurn, .single, .completedTurn, .single])
+        #expect(groups.map(\.kind) == [.single, .completedTurn, .tools, .completedTurn, .single])
         let disclosures = TimelineDisclosureState()
         #expect(!disclosures.isExpanded("turn:before"))
         #expect(!disclosures.isExpanded("turn:after"))

@@ -12473,6 +12473,23 @@
         }
       }
     },
+    "最近消息预览": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest message preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近消息预览"
+          }
+        }
+      }
+    },
     "正在加载较早的消息…": {
       "extractionState": "manual",
       "localizations": {
