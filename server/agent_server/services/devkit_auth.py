@@ -16,6 +16,7 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 _MAX_METADATA_BYTES = 16_384
@@ -45,6 +46,13 @@ class DevKitAuthConfig(AuthScope):
     appOrigin: str
     publishableKey: str = Field(pattern=r"^[!-~]{1,512}$")
     managedOnly: bool = Field(default=False, strict=True)
+    provisionNewUsers: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def validate_provisioning(self) -> DevKitAuthConfig:
+        if self.provisionNewUsers and not self.managedOnly:
+            raise ValueError("DevKit user provisioning requires managed mode")
+        return self
 
     @field_validator("apiUrl", "appOrigin")
     @classmethod

@@ -122,19 +122,51 @@ class UserRepositoryMixin(EmailAccountRepositoryMixin):
             )
             return owner == user_id
 
+    @staticmethod
+    def _devkit_bound_user(scope: str, subject: str):
+        return (
+            select(users_t)
+            .join(devkit_auth_bindings, devkit_auth_bindings.c.user_id == users_t.c.id)
+            .where(devkit_auth_bindings.c.scope == scope, devkit_auth_bindings.c.subject == subject)
+        )
+
     async def devkit_user_for_subject(self, *, scope: str, subject: str) -> UserView | None:
         async with self._engine.connect() as conn:
             result = await conn.execute(
-                select(users_t)
-                .join(devkit_auth_bindings, devkit_auth_bindings.c.user_id == users_t.c.id)
-                .where(
-                    devkit_auth_bindings.c.scope == scope,
-                    devkit_auth_bindings.c.subject == subject,
-                    users_t.c.disabled == 0,
-                )
+                self._devkit_bound_user(scope, subject).where(users_t.c.disabled == 0)
             )
             row = result.mappings().one_or_none()
             return _user_from_row(row) if row else None
+
+    async def provision_devkit_member(self, *, scope: str, subject: str) -> UserView | None:
+        async with self._engine.begin() as conn:
+            # Serialize first login for this identity across server workers.
+            await conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:identity, 0))"),
+                {"identity": f"devkit-enrollment:{scope}:{subject}"},
+            )
+            existing = (await conn.execute(
+                self._devkit_bound_user(scope, subject)
+            )).mappings().one_or_none()
+            if existing is not None:
+                return None if existing["disabled"] else _user_from_row(existing)
+
+            now = utc_now()
+            member = (await conn.execute(
+                insert(users_t).values(
+                    id=f"usr_{secrets.token_hex(12)}",
+                    password_hash="!",  # No local password.
+                    role=MEMBER_ROLE,
+                    created_at=now,
+                    updated_at=now,
+                ).returning(users_t)
+            )).mappings().one()
+            await conn.execute(
+                insert(devkit_auth_bindings).values(
+                    scope=scope, subject=subject, user_id=member["id"],
+                )
+            )
+            return _user_from_row(member)
 
     async def oauth_user_for_subject(self, *, provider: str, subject: str) -> UserView | None:
         provider = (provider or "").strip().lower()

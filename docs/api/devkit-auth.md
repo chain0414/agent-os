@@ -6,13 +6,19 @@ DevKit 托管的 Agent OS 实例由指定的 DevKit 项目负责认证和账号�
 
 - `GET /api/v2/auth/config` 在启用后返回 `devkit.apiUrl` 和 `devkit.publishableKey`。客户端用这两个公开配置访问 DevKit 项目的 Auth API。
 - `POST /api/v2/auth/devkit/link` 接收 `{"accessToken":"<DevKit access token>"}`，要求在 Authorization 中提供当前 Agent OS 用户的有效会话。成功返回 204。重复绑定同一对账号可重试。账号已绑定到其他身份时返回 409。
-- `POST /api/v2/auth/devkit/login` 接收同样的请求体，无需现有 Agent OS 会话。返回常规 `AuthResponse`。只有已绑定的活跃用户可登录。
+- `POST /api/v2/auth/devkit/login` 接收同样的请求体，无需现有 Agent OS 会话。返回常规 `AuthResponse`。默认只有已绑定的活跃用户可登录；仅在托管模式显式启用自动开通时，允许已认证的新主体首次登录。
 
 Agent OS 向 DevKit 的 `/api/runtime/v1/auth/session-metadata` 验证项目、环境、认证域、签发者、受众和会话状态。绑定使用认证域和稳定的主体 ID。DevKit 密码由客户端直接交给 DevKit。应用关闭接入或 DevKit 停用账号时，新的 DevKit 登录会被拒绝。已经签发的 Agent OS 会话沿用 Agent OS 的有效期和停用规则。
 
 ## DevKit 托管模式
 
 在 `AGENT_SERVER_DEVKIT_AUTH` 中设置 `"managedOnly": true`，由 DevKit 提供邮箱和飞书登录及用户管理。`GET /api/v2/auth/config` 在 `devkit.managedOnly` 返回该标志。启用前由运营方导入现有用户身份，并将 DevKit 主体对应到原业务用户 ID。启用后应用登录页使用 DevKit，停用 Agent OS 的本地登录、注册、密码恢复、身份绑定、用户管理和用户统计接口。应用继续按原业务用户 ID 授权已有设备和会话。原生应用的浏览器授权和扫码登录继续使用已有交换接口。配置无法解析时，登录配置与本地身份入口返回 503。移除配置变量可恢复独立运行模式。
+
+### 在 DevKit 开通新用户
+
+确认所有活跃旧用户已经绑定到该认证域，并先在 DevKit 核对注册策略。随后可在 `AGENT_SERVER_DEVKIT_AUTH` 中设置 `"provisionNewUsers": true`，允许该认证域的活跃身份在首次登录时建立普通成员业务记录。默认关闭，只能和 `managedOnly` 一起启用。如果项目允许公开注册，公开注册的新身份也可以进入 Agent OS；仅允许后台新增时应先将 DevKit 策略设为「仅后台新增」。
+
+邮箱不用于认领旧账号。现有绑定和业务角色保持不变，已停用的业务账号不能通过重新登录获得另一个账号。关闭开关会停掉首次开通，已经建立的绑定仍可用。DevKit 停用或删除身份后不能再发起新登录；Agent OS 已签发的会话仍按原有期限和应用停用规则处理。DevKit 管理身份和登录；业务角色、设备和会话仍由 Agent OS 管理。
 
 ### 托管实例的密码恢复
 
