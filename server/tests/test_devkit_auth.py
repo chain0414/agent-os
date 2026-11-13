@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -229,6 +230,63 @@ def test_managed_auth_keeps_original_ownership_and_disables_local_identity(proje
     assert exchanged.status_code == 200
     mobile_headers = bearer(exchanged.json()["access_token"])
     assert client.get("/auth/me", headers=mobile_headers).json()["userId"] == original_id
+
+
+def test_managed_enrollment_creates_one_member_without_claiming_legacy_data(project_auth, monkeypatch):
+    from agent_server.services.devkit_auth import load_devkit_auth
+
+    client = make_test_client()
+    original_headers = bearer(admin_token(client))
+    original_id = user_id(client, "user1")
+    original_device = create_device(client, original_headers)
+    config = load_devkit_auth()
+    assert config is not None
+    monkeypatch.setenv("AGENT_SERVER_DEVKIT_AUTH", json.dumps({
+        **config.model_dump(), "managedOnly": True, "provisionNewUsers": True,
+    }))
+    store = client.app.state.store
+    project_auth["bound-admin"] = {**METADATA, "subject": "devkit-admin"}
+    assert asyncio.run(store.bind_devkit_identity(
+        user_id=original_id, scope=config.binding_scope(), subject="devkit-admin",
+    ))
+    admin_login = client.post(LOGIN, json={"accessToken": "bound-admin"})
+    assert admin_login.status_code == 200
+    assert admin_login.json()["userId"] == original_id
+    assert admin_login.json()["role"] == "admin"
+    assert client.get(f"/connectors/{original_device}", headers=bearer(admin_login.json()["accessToken"])).status_code == 200
+    project_auth["other-realm"] = {**METADATA, "realmId": "other"}
+    assert client.post(LOGIN, json={"accessToken": "other-realm"}).status_code == 401
+    assert client.post(LOGIN, json={"accessToken": "invalid"}).status_code == 401
+    assert asyncio.run(store.count_users()) == 1
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda _: client.post(LOGIN, json=BODY), range(4)))
+
+    assert [response.status_code for response in responses] == [200] * 4
+    new_user = responses[0].json()
+    assert all(response.json()["userId"] == new_user["userId"] for response in responses)
+    assert new_user["userId"] != original_id
+    assert new_user["role"] == "member"
+    new_headers = bearer(new_user["accessToken"])
+    assert client.get("/auth/me", headers=new_headers).json()["userId"] == new_user["userId"]
+    assert client.get(f"/connectors/{original_device}", headers=new_headers).status_code in {403, 404}
+    assert asyncio.run(store.count_users()) == 2
+
+    asyncio.run(store.set_user_disabled(new_user["userId"], True))
+    assert client.post(LOGIN, json=BODY).status_code == 401
+    assert asyncio.run(store.count_users()) == 2
+
+
+def test_enrollment_cannot_be_enabled_in_mixed_mode(project_auth, monkeypatch):
+    from agent_server.services.devkit_auth import load_devkit_auth
+
+    config = load_devkit_auth()
+    assert config is not None
+    monkeypatch.setenv("AGENT_SERVER_DEVKIT_AUTH", json.dumps({
+        **config.model_dump(), "provisionNewUsers": True,
+    }))
+    with make_test_client() as client:
+        assert client.post(LOGIN, json=BODY).status_code == 503
 
 
 @pytest.mark.parametrize("invalid_config", ["", "{", '{"managedOnly": true}'])

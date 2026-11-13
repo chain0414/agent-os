@@ -22,7 +22,7 @@
 
 - 邮箱登录会在输入含 `@` 的地址并离开输入框后，以淡色边框提示格式问题，密码框的位置保持稳定。（[#10](https://github.com/chain0414/agent-os/pull/10)）
 
-- DevKit 托管的实例使用 DevKit 邮箱和飞书登录，在 DevKit 管理用户，并在 Agent OS 保留原设备和会话。
+- DevKit 托管的实例使用 DevKit 邮箱和飞书登录，在 DevKit 管理用户，并在 Agent OS 保留原设备和会话；实例启用自动开通后，DevKit 新用户首次登录即可进入自己的工作台。
 
 - 自托管实例可选用 DevKit 混合接入，在 Web 账户设置添加 DevKit 登录方式。（[#5](https://github.com/chain0414/agent-os/pull/5)）
 

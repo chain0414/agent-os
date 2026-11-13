@@ -274,7 +274,11 @@ async def login_devkit_auth(
     db: Annotated[Store, Depends(get_store)],
 ) -> AuthResponse:
     config, subject = await _devkit_identity(payload)
-    user = await db.devkit_user_for_subject(scope=config.binding_scope(), subject=subject)
+    scope = config.binding_scope()
+    if config.provisionNewUsers:
+        user = await db.provision_devkit_member(scope=scope, subject=subject)
+    else:
+        user = await db.devkit_user_for_subject(scope=scope, subject=subject)
     if user is None:
         raise HTTPException(status_code=401, detail="DevKit account is not linked to an active Agent OS user")
     response.headers["Cache-Control"] = "no-store"
